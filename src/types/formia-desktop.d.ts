@@ -1,0 +1,40 @@
+interface Window {
+  formiaDesktop?: {
+    isDesktop: true;
+    platform: string;
+    inspectorPreloadUrl: string;
+    selectProject: () => Promise<{ name: string; path: string; url: string | null; error?: string } | null>;
+    openProject: (projectPath: string) => Promise<{ name: string; path: string; url: string | null; error?: string }>;
+    stopProjectServer: () => Promise<void>;
+    buildWithCodex: (payload: unknown) => Promise<{ jobId: string }>;
+    onProjectServerStatus: (callback: (status: { state: "starting" | "ready" | "failed" | "stopped"; url?: string; message: string }) => void) => () => void;
+    onCodexStatus: (callback: (status: { jobId: string; state: "working" | "applied" | "failed"; message: string }) => void) => () => void;
+    versions: Readonly<{
+      chrome: string;
+      electron: string;
+      node: string;
+    }>;
+  };
+}
+
+interface FormiaWebviewElement extends HTMLElement {
+  reload(): void;
+  send(channel: string, ...args: unknown[]): void;
+}
+
+interface FormiaWebviewEvent extends Event {
+  channel: string;
+  args: unknown[];
+}
+
+declare namespace React.JSX {
+  interface IntrinsicElements {
+    webview: React.DetailedHTMLProps<React.HTMLAttributes<FormiaWebviewElement>, FormiaWebviewElement> & {
+      src?: string;
+      preload?: string;
+      partition?: string;
+      allowpopups?: string;
+      webpreferences?: string;
+    };
+  }
+}
