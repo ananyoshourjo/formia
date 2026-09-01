@@ -1,11 +1,22 @@
 "use client";
 
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowLeft, Check, CircleAlert, Crosshair, ExternalLink, Hand, Hammer, LoaderCircle, Maximize2, Minus, Plus, RotateCcw } from "lucide-react";
+import { AlignLeftIcon, AngleIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowsOutIcon, CaretDownIcon, CheckIcon, CircleNotchIcon, ColumnsIcon, CursorIcon, DotIcon, DotsNineIcon, FlipHorizontalIcon, FlipVerticalIcon, GridFourIcon, HandGrabbingIcon, LinkSimpleHorizontalIcon, MinusIcon, PlusIcon, RowsIcon, SplitHorizontalIcon, SquareIcon, StackSimpleIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { AlignBottomFilled, AlignHorizontalCenterFilled, AlignLeft2Filled, AlignRight2Filled, AlignTopFilled, Columns3Filled } from "@mingcute/react/core-filled";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Hint } from "@/components/ui/tooltip";
 
 type SelectedElement = {
   selectionId: string | null;
@@ -17,6 +28,7 @@ type SelectedElement = {
   attributes: Record<string, string>;
   dimensions: Record<string, number>;
   styles: Record<string, string>;
+  parentLayout: { display: string } | null;
   react: { name: string; props: unknown; source: string | null } | null;
   previewChanges: PreviewChange[];
 };
@@ -42,6 +54,11 @@ type CodexStatus = {
 type ProjectServerStatus = {
   state: "starting" | "ready" | "failed" | "stopped";
   url?: string;
+  message: string;
+};
+
+type CodexAvailability = {
+  state: "checking" | "available" | "unavailable";
   message: string;
 };
 
@@ -71,13 +88,13 @@ function PropertyGroup({ title, values }: { title: string; values: Record<string
   if (entries.length === 0) return null;
 
   return (
-    <section className="border-b px-5 py-4 last:border-b-0">
-      <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</h3>
-      <dl className="space-y-2.5">
+    <section className="border-b border-border px-3.5 py-3.5 last:border-b-0">
+      <h3 className="mb-2.5 text-[11px] font-semibold text-foreground">{title}</h3>
+      <dl className="space-y-1.5">
         {entries.map(([name, value]) => (
-          <div key={name} className="grid grid-cols-[6rem_minmax(0,1fr)] gap-3 text-xs">
-            <dt className="truncate text-muted-foreground" title={name}>{name}</dt>
-            <dd className="min-w-0 whitespace-pre-wrap break-words font-mono">
+          <div key={name} className="grid grid-cols-[5.25rem_minmax(0,1fr)] items-center gap-2 text-[11px]">
+            <Hint content={name}><dt className="truncate text-muted-foreground">{name}</dt></Hint>
+            <dd className="min-w-0 whitespace-pre-wrap break-words rounded-[5px] bg-muted/70 px-2 py-1 text-foreground">
               {typeof value === "string" || typeof value === "number" ? String(value) : JSON.stringify(value, null, 2)}
             </dd>
           </div>
@@ -99,17 +116,19 @@ function EditableProperty({
   onReset: () => void;
 }) {
   return (
-    <div className="grid grid-cols-[5.5rem_minmax(0,1fr)_1.5rem] items-center gap-2 text-xs">
-      <label className="truncate text-muted-foreground" title={name}>{name}</label>
+    <div className="grid grid-cols-[5.25rem_minmax(0,1fr)_1.5rem] items-center gap-2 text-[11px]">
+      <Hint content={name}><label className="truncate text-muted-foreground">{name}</label></Hint>
       <Input
         value={value}
         aria-label={`Edit ${name}`}
-        className="h-7 min-w-0 font-mono text-xs"
+        className="h-6 min-w-0 rounded-[5px] border-transparent bg-muted/70 px-2 text-[11px] shadow-none hover:bg-muted focus-visible:border-ring"
         onChange={(event) => onCommit(event.currentTarget.value)}
       />
-      <Button type="button" variant="ghost" size="icon-xs" onClick={onReset} aria-label={`Reset ${name}`} title={`Reset ${name}`}>
-        <RotateCcw />
-      </Button>
+      <Hint content={`Reset ${name}`}>
+        <Button type="button" variant="ghost" size="icon-xs" className="size-6 rounded-[5px] text-muted-foreground" onClick={onReset} aria-label={`Reset ${name}`}>
+          <ArrowCounterClockwiseIcon />
+        </Button>
+      </Hint>
     </div>
   );
 }
@@ -129,9 +148,9 @@ function EditablePropertyGroup({
   if (entries.length === 0) return null;
 
   return (
-    <section className="border-b px-5 py-4">
-      <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</h3>
-      <div className="space-y-2.5">
+    <section className="border-b border-border px-3.5 py-3.5">
+      <h3 className="mb-2.5 text-[11px] font-semibold text-foreground">{title}</h3>
+      <div className="space-y-1.5">
         {entries.map(([name, value]) => (
           <EditableProperty key={name} name={name} value={value} onCommit={(nextValue) => onCommit(name, nextValue)} onReset={() => onReset(name)} />
         ))}
@@ -140,63 +159,873 @@ function EditablePropertyGroup({
   );
 }
 
-function PropertiesSidebar({
+function CompactLayoutField({
+  label,
+  name,
+  value,
+  onCommit,
+  onReset,
+  suffix,
+  wideLabel = false,
+}: {
+  label: React.ReactNode;
+  name: string;
+  value: string;
+  onCommit: (value: string) => void;
+  onReset: () => void;
+  suffix?: string;
+  wideLabel?: boolean;
+}) {
+  return (
+    <div className={`group relative grid h-7 min-w-0 items-center rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5 ${wideLabel ? "grid-cols-[1.75rem_minmax(0,1fr)_auto]" : "grid-cols-[0.875rem_minmax(0,1fr)_auto] gap-x-2"}`}>
+      <Hint content={name}><label htmlFor={`layout-${name}`} className={`${wideLabel ? "text-left" : "grid size-3.5 place-items-center"} text-[14px] leading-none font-normal text-muted-foreground [&>svg]:block`}>{label}</label></Hint>
+      <Input id={`layout-${name}`} value={value} aria-label={`Edit ${name}`} className="h-4 min-w-0 w-full overflow-hidden text-ellipsis whitespace-nowrap appearance-none rounded-none border-0 bg-transparent p-0 text-[14px] leading-4 font-normal tabular-nums shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[14px]" onChange={(event) => onCommit(event.currentTarget.value)} />
+      {suffix ? <span className="-ml-1 text-[14px] leading-4 text-muted-foreground">{suffix}</span> : null}
+      <Hint content={`Reset ${name}`}>
+        <Button type="button" variant="ghost" size="icon-xs" className={`absolute top-1/2 size-4 -translate-y-1/2 rounded bg-background p-0 text-muted-foreground opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100 ${suffix ? "right-5" : "right-1"}`} onClick={onReset} aria-label={`Reset ${name}`}>
+          <ArrowCounterClockwiseIcon className="size-3.5" />
+        </Button>
+      </Hint>
+    </div>
+  );
+}
+
+const sizingUnits = [
+  { value: "px", label: "Pixels" },
+  { value: "%", label: "Percent" },
+  { value: "rem", label: "Rem" },
+  { value: "em", label: "Em" },
+  { value: "vw", label: "Viewport width" },
+  { value: "vh", label: "Viewport height" },
+] as const;
+
+const sizingKeywords = [
+  { value: "auto", label: "Auto", inputValue: "auto" },
+  { value: "-webkit-fill-available", label: "Fill", inputValue: "fill" },
+  { value: "fit-content", label: "Fit", inputValue: "fit" },
+  { value: "stretch", label: "Stretch", inputValue: "stretch" },
+  { value: "min-content", label: "Min content", inputValue: "min" },
+  { value: "max-content", label: "Max content", inputValue: "max" },
+] as const;
+
+const insetKeywords = [
+  { value: "auto", label: "Auto", inputValue: "auto" },
+] as const;
+
+type SizingUnit = string;
+type SizingOption = { readonly value: string; readonly label: string; readonly inputValue?: string };
+
+function parseSizingValue(value: string | undefined, fallback: number, unitOptions: readonly SizingOption[] = sizingUnits, keywordOptions: readonly SizingOption[] = sizingKeywords) {
+  const normalized = value?.trim() || `${fallback}px`;
+  const keyword = keywordOptions.find((option) => option.value === normalized);
+  if (keyword) return { inputValue: keyword.inputValue || keyword.value, unit: keyword.value };
+
+  const numeric = normalized.match(/^(-?(?:\d+(?:\.\d*)?|\.\d+))([a-z%]*)$/i);
+  if (!numeric) return { inputValue: normalized, unit: "px" as SizingUnit };
+
+  const unit = unitOptions.some((option) => option.value === numeric[2]) ? numeric[2] : "px";
+  return { inputValue: numeric[1], unit };
+}
+
+function sizingCssValue(inputValue: string, unit: SizingUnit, fallback: number, keywordOptions: readonly SizingOption[] = sizingKeywords) {
+  const keyword = keywordOptions.find((option) => option.value === unit);
+  if (keyword) return keyword.value;
+  const value = inputValue.trim() || `${fallback}`;
+  return `${value}${unit}`;
+}
+
+function SizingLayoutField({
+  label,
+  name,
+  value,
+  fallback,
+  onCommit,
+  onReset,
+  unitOptions = sizingUnits,
+  keywordOptions = sizingKeywords,
+  compactLabel = false,
+}: {
+  label: React.ReactNode;
+  name: string;
+  value: string | undefined;
+  fallback: number;
+  onCommit: (inputValue: string, unit: SizingUnit) => void;
+  onReset: () => void;
+  unitOptions?: readonly SizingOption[];
+  keywordOptions?: readonly SizingOption[];
+  compactLabel?: boolean;
+}) {
+  const parsed = parseSizingValue(value, fallback, unitOptions, keywordOptions);
+  const selectedKeyword = keywordOptions.find((option) => option.value === parsed.unit);
+  const selectedUnitLabel = selectedKeyword?.label || unitOptions.find((option) => option.value === parsed.unit)?.label || "Custom";
+
+  function chooseUnit(unit: string) {
+    const nextUnit = unit as SizingUnit;
+    const keyword = keywordOptions.find((option) => option.value === nextUnit);
+    const nextInputValue = keyword ? (keyword.inputValue || keyword.value) : (Number.isFinite(Number.parseFloat(parsed.inputValue)) ? parsed.inputValue : `${fallback}`);
+    onCommit(nextInputValue, nextUnit);
+  }
+
+  return (
+    <div className={`group relative grid h-7 min-w-0 items-center rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5 ${compactLabel ? "grid-cols-[0.875rem_minmax(0,1fr)] gap-x-2" : "grid-cols-[1.75rem_minmax(0,1fr)]"}`}>
+      <Hint content={name}><label htmlFor={`layout-${name}`} className={`${compactLabel ? "grid size-3.5 place-items-center [&>svg]:block" : ""} text-[14px] leading-4 font-normal text-muted-foreground`}>{label}</label></Hint>
+      <Input
+        id={`layout-${name}`}
+        value={parsed.inputValue}
+        aria-label={`Edit ${name}`}
+        className="h-4 min-w-0 w-full overflow-hidden text-ellipsis whitespace-nowrap appearance-none rounded-none border-0 bg-transparent p-0 pr-8 text-[14px] leading-4 font-normal tabular-nums shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[14px]"
+        onChange={(event) => onCommit(event.currentTarget.value, parsed.unit)}
+      />
+      <Hint content={`Reset ${name}`}>
+        <Button type="button" variant="ghost" size="icon-xs" className="absolute right-5 top-1/2 size-4 -translate-y-1/2 rounded bg-background p-0 text-muted-foreground opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100" onClick={onReset} aria-label={`Reset ${name}`}>
+          <ArrowCounterClockwiseIcon className="size-3.5" />
+        </Button>
+      </Hint>
+      <DropdownMenu>
+        <Hint content={`Unit: ${selectedUnitLabel}`}>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="ghost" size="icon-xs" className="absolute right-0.5 top-1/2 size-4 -translate-y-1/2 rounded p-0 text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/10" aria-label={`Choose ${name} unit`}>
+              <CaretDownIcon className="size-3" />
+            </Button>
+          </DropdownMenuTrigger>
+        </Hint>
+        <DropdownMenuContent align="end" sideOffset={4} className="w-40 rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
+          <DropdownMenuLabel className="px-2 py-1 text-[11px]">Units</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={parsed.unit} onValueChange={chooseUnit}>
+            {unitOptions.map((option) => <DropdownMenuRadioItem key={option.value} value={option.value} className="rounded-[3px] px-2 py-1 text-[12px]">{option.label}</DropdownMenuRadioItem>)}
+          </DropdownMenuRadioGroup>
+          {keywordOptions.length > 0 ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="px-2 py-1 text-[11px]">Sizing</DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={parsed.unit} onValueChange={chooseUnit}>
+                {keywordOptions.map((option) => <DropdownMenuRadioItem key={option.value} value={option.value} className="rounded-[3px] px-2 py-1 text-[12px]">{option.label}</DropdownMenuRadioItem>)}
+              </DropdownMenuRadioGroup>
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+function LayoutSelectField({
+  label,
+  name,
+  value,
+  options,
+  onChange,
+  stacked = false,
+}: {
+  label: string;
+  name: string;
+  value: string | undefined;
+  options: readonly { value: string; label: string }[];
+  onChange: (value: string) => void;
+  stacked?: boolean;
+}) {
+  return (
+    <div className={stacked ? "space-y-1 text-[11px]" : "grid grid-cols-[1.75rem_minmax(0,1fr)] items-center gap-2 text-[11px]"}>
+      <Hint content={name}><label className={stacked ? "block text-[12px] leading-4 text-muted-foreground" : "truncate text-muted-foreground"}>{label}</label></Hint>
+      <Select value={value || options[0]?.value} onValueChange={onChange}>
+        <SelectTrigger aria-label={`Edit ${name}`} className="h-7 w-full rounded-[5px] border-border bg-muted/35 px-2 text-[14px] leading-4 font-normal text-foreground shadow-none hover:bg-muted/50 focus-visible:ring-1 focus-visible:ring-foreground/5">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent position="popper" className="rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
+          {options.map((option) => <SelectItem key={option.value} value={option.value} className="rounded-[3px] px-2 py-1 text-[14px]">{option.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function CompactLayoutSelectField({
+  label,
+  name,
+  value,
+  options,
+  onChange,
+  onReset,
+}: {
+  label: React.ReactNode;
+  name: string;
+  value: string | undefined;
+  options: readonly { value: string; label: string }[];
+  onChange: (value: string) => void;
+  onReset: () => void;
+}) {
+  return (
+    <div className="group relative grid h-7 min-w-0 grid-cols-[0.875rem_minmax(0,1fr)] items-center gap-x-2 rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5">
+      <Hint content={name}><label className="grid size-3.5 place-items-center text-[14px] leading-none font-normal text-muted-foreground [&>svg]:block">{label}</label></Hint>
+      <Select value={value || options[0]?.value} onValueChange={onChange}>
+        <SelectTrigger size="sm" aria-label={`Edit ${name}`} className="h-7 min-w-0 w-full items-center justify-start gap-1 rounded-none border-0 bg-transparent p-0 pr-8 text-[14px] leading-none font-normal text-foreground shadow-none focus-visible:ring-0 [&>svg]:hidden">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent position="popper" className="rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
+          {options.map((option) => <SelectItem key={option.value} value={option.value} className="rounded-[3px] px-2 py-1 text-[14px]">{option.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
+      <Hint content={`Reset ${name}`}>
+        <Button type="button" variant="ghost" size="icon-xs" className="absolute right-5 top-1/2 z-10 size-4 -translate-y-1/2 rounded bg-background p-0 text-muted-foreground opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100" onClick={onReset} aria-label={`Reset ${name}`}>
+          <ArrowCounterClockwiseIcon className="size-3.5" />
+        </Button>
+      </Hint>
+      <CaretDownIcon className="pointer-events-none absolute right-0.5 top-1/2 z-10 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+    </div>
+  );
+}
+
+function LayoutLabel({ children }: { children: React.ReactNode }) {
+  return <p className="text-[12px] leading-4 font-normal text-muted-foreground">{children}</p>;
+}
+
+const distributionOptions = [
+  { value: "flex-start", label: "Start" },
+  { value: "center", label: "Center" },
+  { value: "flex-end", label: "End" },
+  { value: "space-between", label: "Space between" },
+  { value: "space-around", label: "Space around" },
+  { value: "space-evenly", label: "Space evenly" },
+] as const;
+
+function normalizeDistribution(value: string | undefined) {
+  if (value === "center" || value === "flex-start" || value === "flex-end" || value === "space-between" || value === "space-around" || value === "space-evenly") return value;
+  if (value === "start") return "flex-start";
+  if (value === "end") return "flex-end";
+  return "flex-start";
+}
+
+const layoutControlSurface = "flex h-7 overflow-hidden rounded-[5px] border border-border bg-muted/35 p-0.5 shadow-none";
+const layoutControlButton = "h-full flex-1 rounded-[3px] text-muted-foreground leading-4 shadow-none transition-colors aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-none aria-pressed:ring-1 aria-pressed:ring-foreground/5";
+
+type TransformType = "rotate" | "scale" | "skew";
+
+type TransformItem = {
+  id: number;
+  type: TransformType;
+  rotation: string;
+  flipHorizontal: boolean;
+  flipVertical: boolean;
+  scaleX: string;
+  scaleY: string;
+  skewX: string;
+  skewY: string;
+};
+
+const transformOptions = [
+  { value: "rotate", label: "Rotate" },
+  { value: "scale", label: "Scale" },
+  { value: "skew", label: "Skew" },
+] as const;
+
+function createTransformItem(id: number, type: TransformType = "rotate"): TransformItem {
+  return {
+    id,
+    type,
+    rotation: "0",
+    flipHorizontal: false,
+    flipVertical: false,
+    scaleX: "1",
+    scaleY: "1",
+    skewX: "0",
+    skewY: "0",
+  };
+}
+
+function transformNumber(value: string, fallback: number) {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function transformValue(value: string, fallback: number) {
+  return String(transformNumber(value, fallback));
+}
+
+function serializeTransform(item: TransformItem) {
+  if (item.type === "scale") return `scale(${transformValue(item.scaleX, 1)}, ${transformValue(item.scaleY, 1)})`;
+  if (item.type === "skew") return `skew(${transformNumber(item.skewX, 0)}deg, ${transformNumber(item.skewY, 0)}deg)`;
+
+  return [
+    `rotate(${transformNumber(item.rotation, 0)}deg)`,
+    item.flipHorizontal ? "scaleX(-1)" : "",
+    item.flipVertical ? "scaleY(-1)" : "",
+  ].filter(Boolean).join(" ");
+}
+
+function serializeTransforms(transforms: TransformItem[]) {
+  return transforms.length > 0 ? transforms.map(serializeTransform).join(" ") : "none";
+}
+
+function parseTransformArguments(value: string) {
+  return value.split(/[,\s]+/).map((part) => part.trim()).filter(Boolean);
+}
+
+function parseTransformValue(value: string | undefined) {
+  const normalized = value?.trim();
+  if (!normalized || normalized === "none") return [];
+
+  const transforms: TransformItem[] = [];
+  let nextId = 1;
+  const functionPattern = /([a-z]+)\(([^)]*)\)/gi;
+  let match = functionPattern.exec(normalized);
+
+  while (match) {
+    const [, name, argumentString] = match;
+    const args = parseTransformArguments(argumentString);
+
+    if (name.toLowerCase() === "rotate") {
+      transforms.push({ ...createTransformItem(nextId++), rotation: args[0]?.replace(/deg$/i, "") || "0" });
+    } else if (name.toLowerCase() === "scale") {
+      transforms.push({
+        ...createTransformItem(nextId++, "scale"),
+        scaleX: args[0] || "1",
+        scaleY: args[1] || args[0] || "1",
+      });
+    } else if (name.toLowerCase() === "skew") {
+      transforms.push({
+        ...createTransformItem(nextId++, "skew"),
+        skewX: args[0]?.replace(/deg$/i, "") || "0",
+        skewY: args[1]?.replace(/deg$/i, "") || "0",
+      });
+    } else if (name.toLowerCase() === "scaleX" && args[0] === "-1") {
+      const previousRotate = transforms.findLast((item) => item.type === "rotate");
+      if (previousRotate) previousRotate.flipHorizontal = true;
+    } else if (name.toLowerCase() === "scaleY" && args[0] === "-1") {
+      const previousRotate = transforms.findLast((item) => item.type === "rotate");
+      if (previousRotate) previousRotate.flipVertical = true;
+    }
+
+    match = functionPattern.exec(normalized);
+  }
+
+  return transforms;
+}
+
+function TransformRow({
+  item,
+  onTypeChange,
+  onUpdate,
+  onRemove,
+  onReset,
+}: {
+  item: TransformItem;
+  onTypeChange: (type: TransformType) => void;
+  onUpdate: (patch: Partial<TransformItem>) => void;
+  onRemove: () => void;
+  onReset: () => void;
+}) {
+  const transformControl = item.type === "rotate" ? (
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_1.75rem_1.75rem] gap-1">
+      <CompactLayoutField label={<AngleIcon className="size-3.5" aria-hidden="true" />} name={`rotation-${item.id}`} value={item.rotation} onCommit={(value) => onUpdate({ rotation: value })} onReset={onReset} />
+      <Hint content="Flip horizontal">
+        <Button type="button" variant="ghost" size="icon-xs" className="size-7 rounded-[5px] border border-border bg-muted/35 text-muted-foreground shadow-none aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-none aria-pressed:ring-1 aria-pressed:ring-foreground/5" onClick={() => onUpdate({ flipHorizontal: !item.flipHorizontal })} aria-label="Flip horizontal" aria-pressed={item.flipHorizontal}><FlipHorizontalIcon className="size-3.5" /></Button>
+      </Hint>
+      <Hint content="Flip vertical">
+        <Button type="button" variant="ghost" size="icon-xs" className="size-7 rounded-[5px] border border-border bg-muted/35 text-muted-foreground shadow-none aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-none aria-pressed:ring-1 aria-pressed:ring-foreground/5" onClick={() => onUpdate({ flipVertical: !item.flipVertical })} aria-label="Flip vertical" aria-pressed={item.flipVertical}><FlipVerticalIcon className="size-3.5" /></Button>
+      </Hint>
+    </div>
+  ) : item.type === "scale" ? (
+    <div className="grid min-w-0 grid-cols-2 gap-1">
+      <CompactLayoutField label="X" name={`scale-x-${item.id}`} value={item.scaleX} onCommit={(value) => onUpdate({ scaleX: value })} onReset={onReset} />
+      <CompactLayoutField label="Y" name={`scale-y-${item.id}`} value={item.scaleY} onCommit={(value) => onUpdate({ scaleY: value })} onReset={onReset} />
+    </div>
+  ) : (
+    <div className="grid min-w-0 grid-cols-2 gap-1">
+      <CompactLayoutField label="X" name={`skew-x-${item.id}`} value={item.skewX} onCommit={(value) => onUpdate({ skewX: value })} onReset={onReset} />
+      <CompactLayoutField label="Y" name={`skew-y-${item.id}`} value={item.skewY} onCommit={(value) => onUpdate({ skewY: value })} onReset={onReset} />
+    </div>
+  );
+
+  return (
+    <div className="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)_1.75rem] gap-1">
+      <Select value={item.type} onValueChange={(value) => onTypeChange(value as TransformType)}>
+        <SelectTrigger size="sm" aria-label={`Transform ${item.id} type`} className="h-7 w-full min-w-0 !rounded-[5px] border-border bg-muted/35 px-2 py-0 text-[14px] leading-4 font-normal text-foreground shadow-none hover:bg-muted/50 focus-visible:ring-1 focus-visible:ring-foreground/5">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent position="popper" className="rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
+          {transformOptions.map((option) => <SelectItem key={option.value} value={option.value} className="rounded-[3px] px-2 py-1 text-[14px]">{option.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
+      {transformControl}
+      <Hint content="Remove transform">
+        <Button type="button" variant="ghost" size="icon-xs" className="size-7 rounded-[5px] border border-border bg-muted/35 text-muted-foreground shadow-none hover:bg-muted/50 hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/5" onClick={onRemove} aria-label={`Remove ${item.type} transform`}>
+          <MinusIcon className="size-3.5" />
+        </Button>
+      </Hint>
+    </div>
+  );
+}
+
+function LayoutGroup({
   selection,
   onApplyStyle,
   onResetStyle,
-  onApplyClassName,
-  onResetClassName,
+}: {
+  selection: SelectedElement;
+  onApplyStyle: (property: string, value: string) => void;
+  onResetStyle: (property: string) => void;
+}) {
+  const [transforms, setTransforms] = useState<TransformItem[]>(() => parseTransformValue(selection.styles.transform));
+  const nextTransformId = useRef(transforms.length + 1);
+  const [aspectRatioLocked, setAspectRatioLocked] = useState(false);
+  const [aspectRatio, setAspectRatio] = useState<number | null>(null);
+
+  function commitTransforms(nextTransforms: TransformItem[]) {
+    setTransforms(nextTransforms);
+    onApplyStyle("transform", serializeTransforms(nextTransforms));
+  }
+
+  function updateTransform(id: number, patch: Partial<TransformItem>) {
+    commitTransforms(transforms.map((item) => item.id === id ? { ...item, ...patch } : item));
+  }
+
+  function updateTransformType(id: number, type: TransformType) {
+    updateTransform(id, { type });
+  }
+
+  function addTransform() {
+    const id = nextTransformId.current++;
+    setTransforms((current) => [...current, createTransformItem(id)]);
+  }
+
+  function removeTransform(id: number) {
+    commitTransforms(transforms.filter((item) => item.id !== id));
+  }
+
+  function resetTransform() {
+    setTransforms([]);
+    onResetStyle("transform");
+  }
+
+  function toggleAspectRatio() {
+    if (aspectRatioLocked) {
+      setAspectRatioLocked(false);
+      return;
+    }
+
+    const width = Number(selection.dimensions.width);
+    const height = Number(selection.dimensions.height);
+    if (width > 0 && height > 0) {
+      setAspectRatio(width / height);
+      setAspectRatioLocked(true);
+    }
+  }
+
+  function commitSizing(property: "width" | "height" | "minWidth" | "minHeight", inputValue: string, unit: SizingUnit) {
+    const fallback = property === "width" || property === "minWidth" ? selection.dimensions.width : selection.dimensions.height;
+    onApplyStyle(property, sizingCssValue(inputValue, unit, fallback));
+
+    if (!aspectRatioLocked || !aspectRatio || (property !== "width" && property !== "height")) return;
+
+    const numericValue = Number.parseFloat(inputValue);
+    if (!Number.isFinite(numericValue)) return;
+
+    const otherProperty = property === "width" ? "height" : "width";
+    const otherFallback = otherProperty === "width" ? selection.dimensions.width : selection.dimensions.height;
+    const otherValue = property === "width" ? numericValue / aspectRatio : numericValue * aspectRatio;
+    const otherSizing = parseSizingValue(selection.styles[otherProperty], otherFallback);
+    const otherUnit = sizingUnits.some((option) => option.value === otherSizing.unit) ? otherSizing.unit : "px";
+    const roundedOtherValue = Math.round(otherValue * 100) / 100;
+    onApplyStyle(otherProperty, `${roundedOtherValue}${otherUnit}`);
+  }
+
+  function commitInset(property: "top" | "bottom" | "right" | "left", inputValue: string, unit: SizingUnit) {
+    onApplyStyle(property, sizingCssValue(inputValue, unit, 0, insetKeywords));
+  }
+
+  const alignmentValues = ["flex-start", "center", "flex-end"] as const;
+  const alignmentIcons = [
+    [AlignLeft2Filled, AlignTopFilled, AlignRight2Filled],
+    [AlignLeft2Filled, AlignHorizontalCenterFilled, AlignRight2Filled],
+    [AlignLeft2Filled, AlignBottomFilled, AlignRight2Filled],
+  ] as const;
+  const alignIndex = Math.max(0, alignmentValues.indexOf(selection.styles.alignItems as typeof alignmentValues[number]));
+  const distribution = normalizeDistribution(selection.styles.justifyContent);
+  const justifyIndex = Math.max(0, alignmentValues.indexOf(distribution as typeof alignmentValues[number]));
+  const positionMode = selection.styles.position || "static";
+  const isFlexContainer = selection.styles.display === "flex" || selection.styles.display === "inline-flex";
+  const isFlexItem = selection.parentLayout?.display === "flex" || selection.parentLayout?.display === "inline-flex";
+  const isGridContainer = selection.styles.display === "grid" || selection.styles.display === "inline-grid";
+  const isGridItem = selection.parentLayout?.display === "grid" || selection.parentLayout?.display === "inline-grid";
+  const isColumnFlex = isFlexContainer && (selection.styles.flexDirection === "column" || selection.styles.flexDirection === "column-reverse");
+  const isDistributed = distribution.startsWith("space-");
+
+  function applyAlignment(row: number, column: number) {
+    if (isColumnFlex) {
+      onApplyStyle("alignItems", alignmentValues[column]);
+      onApplyStyle("justifyContent", alignmentValues[row]);
+      return;
+    }
+    onApplyStyle("alignItems", alignmentValues[row]);
+    onApplyStyle("justifyContent", alignmentValues[column]);
+  }
+
+  return (
+    <section className="border-b border-border px-3 py-2.5">
+      <div className="mb-2">
+        <h3 className="text-[14px] leading-4 font-medium text-foreground">Layout</h3>
+      </div>
+      <div className="space-y-2">
+        <div className="space-y-1">
+          <LayoutLabel>Position</LayoutLabel>
+          <div className="grid grid-cols-2 gap-1">
+            <CompactLayoutField label="X" name="x" value={`${selection.dimensions.x}`} onCommit={(value) => onApplyStyle("x", value)} onReset={() => onResetStyle("x")} />
+            <CompactLayoutField label="Y" name="y" value={`${selection.dimensions.y}`} onCommit={(value) => onApplyStyle("y", value)} onReset={() => onResetStyle("y")} />
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <div className="flex h-4 items-center justify-between">
+            <LayoutLabel>Size</LayoutLabel>
+            <Hint content={aspectRatioLocked ? "Unlock aspect ratio" : "Lock aspect ratio"}>
+              <Button type="button" variant="ghost" size="icon-xs" className={`size-4 rounded p-0 transition-colors focus-visible:ring-1 focus-visible:ring-foreground/10 ${aspectRatioLocked ? "bg-muted/60 text-foreground ring-1 ring-foreground/10" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`} onClick={toggleAspectRatio} aria-label={aspectRatioLocked ? "Unlock aspect ratio" : "Lock aspect ratio"} aria-pressed={aspectRatioLocked}>
+                <LinkSimpleHorizontalIcon className="size-3" />
+              </Button>
+            </Hint>
+          </div>
+          <div className="grid grid-cols-2 gap-1 items-center">
+            <SizingLayoutField label="W" name="width" value={selection.styles.width} fallback={selection.dimensions.width} onCommit={(value, unit) => commitSizing("width", value, unit)} onReset={() => onResetStyle("width")} />
+            <SizingLayoutField label="H" name="height" value={selection.styles.height} fallback={selection.dimensions.height} onCommit={(value, unit) => commitSizing("height", value, unit)} onReset={() => onResetStyle("height")} />
+          </div>
+          <div className="grid grid-cols-2 gap-1">
+            <SizingLayoutField label="MW" name="min-width" value={selection.styles.minWidth} fallback={0} onCommit={(value, unit) => commitSizing("minWidth", value, unit)} onReset={() => onResetStyle("minWidth")} />
+            <SizingLayoutField label="MH" name="min-height" value={selection.styles.minHeight} fallback={0} onCommit={(value, unit) => commitSizing("minHeight", value, unit)} onReset={() => onResetStyle("minHeight")} />
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <LayoutLabel>Alignment</LayoutLabel>
+          <div className="grid grid-cols-2 items-start gap-1">
+            <div className="grid w-full grid-cols-3 gap-0.5 rounded-[5px] border border-border bg-muted/35 p-0.5" role="group" aria-label="Alignment and justification">
+              {alignmentValues.flatMap((alignValue, row) => alignmentIcons[row].map((AlignmentIcon, column) => {
+                const justifyValue = alignmentValues[column];
+                const selected = isDistributed
+                  ? (isColumnFlex ? column === alignIndex : row === alignIndex)
+                  : (isColumnFlex ? row === justifyIndex && column === alignIndex : row === alignIndex && column === justifyIndex);
+                return (
+                  <Button key={`${alignValue}-${justifyValue}`} type="button" variant="ghost" size="icon-xs" className="h-7 w-full rounded-[3px] text-muted-foreground shadow-none hover:bg-transparent" onClick={() => applyAlignment(row, column)} aria-label={`Align ${alignValue}, justify ${justifyValue}`} aria-pressed={selected}>
+                    {selected ? (isDistributed ? <Columns3Filled className="size-3.5" aria-hidden="true" /> : <AlignmentIcon className="size-3.5" aria-hidden="true" />) : <DotIcon className="size-3.5" aria-hidden="true" />}
+                  </Button>
+                );
+              }))}
+            </div>
+            <div className="space-y-1">
+              <CompactLayoutSelectField label={<AlignLeftIcon className="size-3.5" aria-hidden="true" />} name="justify-content" value={distribution} options={distributionOptions} onChange={(value) => onApplyStyle("justifyContent", value)} onReset={() => onResetStyle("justifyContent")} />
+              <SizingLayoutField compactLabel label={<SplitHorizontalIcon className="size-3.5" aria-hidden="true" />} name="gap" value={selection.styles.gap} fallback={0} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("gap", sizingCssValue(value, unit, 0, []))} onReset={() => onResetStyle("gap")} />
+              <CompactLayoutField label={<StackSimpleIcon className="size-3.5" aria-hidden="true" />} name="z-index" value={selection.styles.zIndex} onCommit={(value) => onApplyStyle("zIndex", value)} onReset={() => onResetStyle("zIndex")} />
+            </div>
+          </div>
+        </div>
+        <div className="space-y-1">
+          <LayoutLabel>Display</LayoutLabel>
+          <div className={layoutControlSurface} role="group" aria-label="Display">
+            {[["block", SquareIcon], ["flex", DotsNineIcon], ["grid", GridFourIcon]].map(([value, Icon]) => (
+              <Hint key={value as string} content={`Display ${value}`}>
+                <Button key={value as string} type="button" variant="ghost" size="icon-xs" className={layoutControlButton} onClick={() => onApplyStyle("display", value as string)} aria-label={`Display ${value}`} aria-pressed={selection.styles.display === value}><Icon className="size-3.5" /></Button>
+              </Hint>
+            ))}
+          </div>
+        </div>
+        {isFlexContainer || isFlexItem ? (
+          <div className="space-y-2">
+            <LayoutLabel>Flex container</LayoutLabel>
+            {isFlexContainer ? (
+              <div className="space-y-1">
+                <div className="grid grid-cols-2 gap-1">
+                  <SizingLayoutField label="RG" name="row-gap" value={selection.styles.rowGap} fallback={0} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("rowGap", sizingCssValue(value, unit, 0, []))} onReset={() => onResetStyle("rowGap")} />
+                  <SizingLayoutField label="CG" name="column-gap" value={selection.styles.columnGap} fallback={0} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("columnGap", sizingCssValue(value, unit, 0, []))} onReset={() => onResetStyle("columnGap")} />
+                </div>
+              </div>
+            ) : null}
+            {isFlexItem ? (
+              <div className="space-y-1">
+                <p className="text-[11px] leading-4 text-muted-foreground">Item</p>
+                <div className="grid grid-cols-2 gap-1">
+                  <CompactLayoutField label="G" name="flex-grow" value={selection.styles.flexGrow} onCommit={(value) => onApplyStyle("flexGrow", value)} onReset={() => onResetStyle("flexGrow")} />
+                  <CompactLayoutField label="S" name="flex-shrink" value={selection.styles.flexShrink} onCommit={(value) => onApplyStyle("flexShrink", value)} onReset={() => onResetStyle("flexShrink")} />
+                  <SizingLayoutField label="B" name="flex-basis" value={selection.styles.flexBasis} fallback={0} onCommit={(value, unit) => onApplyStyle("flexBasis", sizingCssValue(value, unit, 0))} onReset={() => onResetStyle("flexBasis")} />
+                  <CompactLayoutField label="O" name="order" value={selection.styles.order} onCommit={(value) => onApplyStyle("order", value)} onReset={() => onResetStyle("order")} />
+                </div>
+                <LayoutSelectField label="AS" name="align-self" value={selection.styles.alignSelf} options={[
+                  { value: "auto", label: "Auto" },
+                  { value: "flex-start", label: "Flex start" },
+                  { value: "flex-end", label: "Flex end" },
+                  { value: "center", label: "Center" },
+                  { value: "baseline", label: "Baseline" },
+                  { value: "stretch", label: "Stretch" },
+                ]} onChange={(value) => onApplyStyle("alignSelf", value)} />
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {isGridContainer || isGridItem ? (
+          <div className="space-y-2">
+            <LayoutLabel>Grid container</LayoutLabel>
+            {isGridContainer ? (
+              <div className="space-y-1">
+                <div className="grid grid-cols-2 gap-1">
+                  <CompactLayoutField label="C" name="grid-template-columns" value={selection.styles.gridTemplateColumns} wideLabel onCommit={(value) => onApplyStyle("gridTemplateColumns", value)} onReset={() => onResetStyle("gridTemplateColumns")} />
+                  <CompactLayoutField label="R" name="grid-template-rows" value={selection.styles.gridTemplateRows} wideLabel onCommit={(value) => onApplyStyle("gridTemplateRows", value)} onReset={() => onResetStyle("gridTemplateRows")} />
+                  <SizingLayoutField label="RG" name="row-gap" value={selection.styles.rowGap} fallback={0} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("rowGap", sizingCssValue(value, unit, 0, []))} onReset={() => onResetStyle("rowGap")} />
+                  <SizingLayoutField label="CG" name="column-gap" value={selection.styles.columnGap} fallback={0} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("columnGap", sizingCssValue(value, unit, 0, []))} onReset={() => onResetStyle("columnGap")} />
+                </div>
+                <LayoutSelectField label="Auto placement" name="grid-auto-flow" value={selection.styles.gridAutoFlow} stacked options={[
+                  { value: "row", label: "Row" },
+                  { value: "column", label: "Column" },
+                  { value: "dense", label: "Dense" },
+                  { value: "row dense", label: "Row dense" },
+                  { value: "column dense", label: "Column dense" },
+                ]} onChange={(value) => onApplyStyle("gridAutoFlow", value)} />
+              </div>
+            ) : null}
+            {isGridItem ? (
+              <div className="space-y-1">
+                <p className="text-[11px] leading-4 text-muted-foreground">Item</p>
+                <div className="grid grid-cols-2 gap-1">
+                  <CompactLayoutField label="CS" name="grid-column-start" value={selection.styles.gridColumnStart} onCommit={(value) => onApplyStyle("gridColumnStart", value)} onReset={() => onResetStyle("gridColumnStart")} />
+                  <CompactLayoutField label="CE" name="grid-column-end" value={selection.styles.gridColumnEnd} onCommit={(value) => onApplyStyle("gridColumnEnd", value)} onReset={() => onResetStyle("gridColumnEnd")} />
+                  <CompactLayoutField label="RS" name="grid-row-start" value={selection.styles.gridRowStart} onCommit={(value) => onApplyStyle("gridRowStart", value)} onReset={() => onResetStyle("gridRowStart")} />
+                  <CompactLayoutField label="RE" name="grid-row-end" value={selection.styles.gridRowEnd} onCommit={(value) => onApplyStyle("gridRowEnd", value)} onReset={() => onResetStyle("gridRowEnd")} />
+                  <CompactLayoutField label="A" name="grid-area" value={selection.styles.gridArea} onCommit={(value) => onApplyStyle("gridArea", value)} onReset={() => onResetStyle("gridArea")} />
+                </div>
+                <LayoutSelectField label="JS" name="justify-self" value={selection.styles.justifySelf} options={[
+                  { value: "auto", label: "Auto" },
+                  { value: "start", label: "Start" },
+                  { value: "end", label: "End" },
+                  { value: "center", label: "Center" },
+                  { value: "stretch", label: "Stretch" },
+                ]} onChange={(value) => onApplyStyle("justifySelf", value)} />
+                <LayoutSelectField label="AS" name="align-self" value={selection.styles.alignSelf} options={[
+                  { value: "auto", label: "Auto" },
+                  { value: "start", label: "Start" },
+                  { value: "end", label: "End" },
+                  { value: "center", label: "Center" },
+                  { value: "stretch", label: "Stretch" },
+                ]} onChange={(value) => onApplyStyle("alignSelf", value)} />
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="space-y-1">
+          <LayoutLabel>Flow</LayoutLabel>
+          {isFlexContainer ? (
+            <div className="grid grid-cols-[minmax(0,1fr)_1.75rem] gap-1">
+              <div className={layoutControlSurface} role="group" aria-label="Flex direction">
+                <Hint content="Flex direction row">
+                  <Button type="button" variant="ghost" size="icon-xs" className={layoutControlButton} onClick={() => onApplyStyle("flexDirection", "row")} aria-label="Flex direction row" aria-pressed={selection.styles.flexDirection === "row"}><RowsIcon className="size-3.5" /></Button>
+                </Hint>
+                <Hint content="Flex direction column">
+                  <Button type="button" variant="ghost" size="icon-xs" className={layoutControlButton} onClick={() => onApplyStyle("flexDirection", "column")} aria-label="Flex direction column" aria-pressed={selection.styles.flexDirection === "column"}><ColumnsIcon className="size-3.5" /></Button>
+                </Hint>
+              </div>
+              <Hint content={selection.styles.flexWrap === "wrap" ? "Disable flex wrap" : "Enable flex wrap"}>
+                <Button type="button" variant="ghost" size="icon-xs" className="size-7 rounded-[5px] border border-border bg-muted/35 text-muted-foreground shadow-none aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-none aria-pressed:ring-1 aria-pressed:ring-foreground/5" onClick={() => onApplyStyle("flexWrap", selection.styles.flexWrap === "wrap" ? "nowrap" : "wrap")} aria-label="Toggle flex wrap" aria-pressed={selection.styles.flexWrap === "wrap"}><ArrowElbowDownLeftIcon className="size-3.5" /></Button>
+              </Hint>
+            </div>
+          ) : null}
+          <Select value={positionMode} onValueChange={(value) => onApplyStyle("position", value)}>
+            <SelectTrigger aria-label="Position" className="h-7 w-full rounded-[5px] border-border bg-muted/35 px-2 text-[14px] leading-4 font-normal text-foreground shadow-none hover:bg-muted/50 focus-visible:ring-1 focus-visible:ring-foreground/5">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent position="popper" className="rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
+              <SelectItem value="static" className="rounded-[3px] px-2 py-1 text-[14px]">Static</SelectItem>
+              <SelectItem value="relative" className="rounded-[3px] px-2 py-1 text-[14px]">Relative</SelectItem>
+              <SelectItem value="absolute" className="rounded-[3px] px-2 py-1 text-[14px]">Absolute</SelectItem>
+              <SelectItem value="fixed" className="rounded-[3px] px-2 py-1 text-[14px]">Fixed</SelectItem>
+            </SelectContent>
+          </Select>
+          {positionMode !== "static" ? (
+            <div className="space-y-1 pt-1">
+              <LayoutLabel>Inset</LayoutLabel>
+              <div className="grid grid-cols-2 gap-1">
+                <SizingLayoutField label="T" name="top" value={selection.styles.top} fallback={0} keywordOptions={insetKeywords} onCommit={(value, unit) => commitInset("top", value, unit)} onReset={() => onResetStyle("top")} />
+                <SizingLayoutField label="B" name="bottom" value={selection.styles.bottom} fallback={0} keywordOptions={insetKeywords} onCommit={(value, unit) => commitInset("bottom", value, unit)} onReset={() => onResetStyle("bottom")} />
+                <SizingLayoutField label="R" name="right" value={selection.styles.right} fallback={0} keywordOptions={insetKeywords} onCommit={(value, unit) => commitInset("right", value, unit)} onReset={() => onResetStyle("right")} />
+                <SizingLayoutField label="L" name="left" value={selection.styles.left} fallback={0} keywordOptions={insetKeywords} onCommit={(value, unit) => commitInset("left", value, unit)} onReset={() => onResetStyle("left")} />
+              </div>
+              {positionMode === "absolute" || positionMode === "fixed" ? (
+                <div className="flex items-center justify-between px-1 text-[11px] leading-4">
+                  <span className="text-muted-foreground">Anchor</span>
+                  <span className="text-foreground">{positionMode === "fixed" ? "Viewport" : "Nearest positioned parent"}</span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        <div className="space-y-1">
+          <div className="flex h-4 items-center justify-between">
+            <LayoutLabel>Transform</LayoutLabel>
+            <Hint content="Add transform">
+              <Button type="button" variant="ghost" size="icon-xs" className="size-4 rounded p-0 text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/10" onClick={addTransform} aria-label="Add transform">
+                <PlusIcon className="size-3" />
+              </Button>
+            </Hint>
+          </div>
+          <div className="space-y-1">
+            {transforms.map((item) => (
+              <TransformRow
+                key={item.id}
+                item={item}
+                onTypeChange={(type) => updateTransformType(item.id, type)}
+                onUpdate={(patch) => updateTransform(item.id, patch)}
+                onRemove={() => removeTransform(item.id)}
+                onReset={resetTransform}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+type BuildIndicator = "up-to-date" | "due" | "unavailable" | "checking";
+
+function getBuildIndicator(codexAvailability: CodexAvailability, hasPendingChanges: boolean): BuildIndicator {
+  if (codexAvailability.state === "unavailable") return "unavailable";
+  if (codexAvailability.state === "checking") return "checking";
+  return hasPendingChanges ? "due" : "up-to-date";
+}
+
+function buildIndicatorClass(indicator: BuildIndicator) {
+  if (indicator === "unavailable") return "bg-red-500";
+  if (indicator === "checking" || indicator === "due") return "bg-amber-500";
+  return "bg-emerald-500";
+}
+
+function buildIndicatorLabel(indicator: BuildIndicator) {
+  if (indicator === "unavailable") return "Codex is unavailable; you cannot build";
+  if (indicator === "checking") return "Checking whether Codex is available";
+  if (indicator === "due") return "Build is due";
+  return "Build is up to date";
+}
+
+function PropertiesSidebar({
+  selection,
+  projectPath,
+  inspectMode,
+  isDesktop,
+  codexAvailability,
+  codexStatus,
+  projectServerStatus,
+  canvasBackground,
+  onToggleInspect,
+  onBuild,
+  onCanvasBackgroundChange,
+  onApplyStyle,
+  onResetStyle,
   onApplyText,
   onResetText,
   onResetAll,
 }: {
   selection: SelectedElement | null;
+  projectPath: string | null;
+  inspectMode: boolean;
+  isDesktop: boolean;
+  codexAvailability: CodexAvailability;
+  codexStatus: CodexStatus;
+  projectServerStatus: ProjectServerStatus;
+  canvasBackground: string;
+  onToggleInspect: () => void;
+  onBuild: () => void;
+  onCanvasBackgroundChange: (value: string) => void;
   onApplyStyle: (property: string, value: string) => void;
   onResetStyle: (property: string) => void;
-  onApplyClassName: (value: string) => void;
-  onResetClassName: () => void;
   onApplyText: (value: string) => void;
   onResetText: () => void;
   onResetAll: () => void;
 }) {
+  const buildIndicator = getBuildIndicator(codexAvailability, Boolean(selection?.previewChanges?.length));
+  const buildBlocked = !isDesktop || codexAvailability.state !== "available" || !projectPath || !selection?.previewChanges?.length || codexStatus.state === "working";
+
   return (
-    <aside className="flex h-screen w-80 shrink-0 flex-col border-l bg-background">
-      <header className="shrink-0 border-b px-5 py-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-medium">Properties</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {selection ? "Preview-only runtime values" : "Select an element in the canvas"}
-            </p>
-          </div>
-          <Button type="button" variant="ghost" size="xs" onClick={onResetAll} disabled={!selection}>
-            Reset preview
-          </Button>
+    <aside className="flex h-screen w-72 shrink-0 flex-col border-l border-border bg-background text-foreground">
+      <header className="shrink-0 border-b border-border bg-background px-3 py-2.5">
+        <div className="flex items-center justify-end gap-1">
+          <Hint content={inspectMode ? "Stop inspecting" : "Inspect element"}>
+            <Button
+              type="button"
+              variant={inspectMode ? "default" : "ghost"}
+              size="icon"
+              onClick={onToggleInspect}
+              disabled={!isDesktop}
+              aria-pressed={inspectMode}
+              aria-label={inspectMode ? "Stop inspecting" : "Inspect element"}
+            >
+              <CursorIcon />
+            </Button>
+          </Hint>
+          <Hint content="Reset preview">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={onResetAll}
+              disabled={!selection}
+              aria-label="Reset preview"
+            >
+              <ArrowCounterClockwiseIcon />
+            </Button>
+          </Hint>
+          <Hint content={!isDesktop ? "Open Formia in the desktop app to enable Build" : buildIndicator === "unavailable" || buildIndicator === "checking" ? codexAvailability.message : !projectPath ? "Select a project from the desktop app to enable Build" : buildIndicator === "up-to-date" ? buildIndicatorLabel(buildIndicator) : "Send staged visual changes to Codex"}>
+            <Button
+              type="button"
+              size="lg"
+              className={`pl-4 font-normal ${buildBlocked ? "cursor-not-allowed" : ""}`}
+              onClick={() => {
+                if (!buildBlocked) onBuild();
+              }}
+              aria-disabled={buildBlocked}
+              aria-label="Build visual changes with Codex"
+            >
+              <span className={`size-[6px] shrink-0 rounded-full ${buildIndicatorClass(buildIndicator)}`} aria-hidden="true" />
+              Build
+            </Button>
+          </Hint>
         </div>
       </header>
+
+      {codexAvailability.state !== "available" || codexStatus.state !== "idle" || projectServerStatus.state === "failed" ? (
+        <section className="shrink-0 space-y-2 border-b border-border px-3.5 py-3">
+          {codexAvailability.state !== "available" ? (
+            <Hint content={codexAvailability.message}>
+              <p className={`flex items-center gap-1.5 truncate text-xs ${codexAvailability.state === "unavailable" ? "text-destructive" : "text-muted-foreground"}`} role="status">
+                {codexAvailability.state === "checking" ? <CircleNotchIcon className="size-3 shrink-0 animate-spin" /> : <WarningCircleIcon className="size-3 shrink-0" />}
+                <span className="truncate">{codexAvailability.message}</span>
+              </p>
+            </Hint>
+          ) : null}
+          {codexStatus.state !== "idle" ? (
+            <Hint content={codexStatus.message}>
+              <p
+                role="status"
+                className={`flex items-center gap-1.5 truncate text-xs ${codexStatus.state === "failed" ? "text-destructive" : "text-muted-foreground"}`}
+              >
+                {codexStatus.state === "working" ? <CircleNotchIcon className="size-3 shrink-0 animate-spin" /> : null}
+                {codexStatus.state === "applied" ? <CheckIcon className="size-3 shrink-0 text-emerald-600" /> : null}
+                {codexStatus.state === "failed" ? <WarningCircleIcon className="size-3 shrink-0" /> : null}
+                <span className="truncate">{codexStatusLabel(codexStatus)}</span>
+              </p>
+            </Hint>
+          ) : null}
+          {projectServerStatus.state === "failed" ? (
+            <Hint content={projectServerStatus.message}>
+              <p className="flex items-center gap-1.5 text-xs text-destructive" role="status">
+                <WarningCircleIcon className="size-3 shrink-0" />
+                <span className="truncate">{projectServerStatus.message}</span>
+              </p>
+            </Hint>
+          ) : null}
+        </section>
+      ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {selection ? (
           <>
-            <section className="border-b px-5 py-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="secondary" className="font-mono font-normal">{selection.tagName}</Badge>
-                {selection.react?.name ? <span className="text-sm font-medium">{selection.react.name}</span> : null}
-              </div>
-              {selection.react?.source ? <p className="mt-2 break-all font-mono text-xs text-muted-foreground">{selection.react.source}</p> : null}
-              {selection.text ? <p className="mt-3 line-clamp-3 text-xs leading-5 text-muted-foreground">{selection.text}</p> : null}
-            </section>
-            <PropertyGroup title="Identity" values={{ id: selection.id || "—" }} />
-            <EditablePropertyGroup
-              title="Class name"
-              values={{ class: selection.className }}
-              onCommit={(_name, value) => onApplyClassName(value)}
-              onReset={onResetClassName}
-            />
             {selection.react && typeof selection.react.props === "object" && selection.react.props !== null ? (
               <PropertyGroup title="React props" values={selection.react.props as Record<string, unknown>} />
             ) : null}
-            <PropertyGroup title="Dimensions" values={selection.dimensions} />
+            <LayoutGroup key={selection.selectionId ?? `${selection.tagName}-${selection.id ?? "selected"}`} selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
             {selection.textEditable ? (
               <EditablePropertyGroup
                 title="Text content"
@@ -207,42 +1036,81 @@ function PropertiesSidebar({
             ) : null}
             <EditablePropertyGroup
               title="Computed styles"
-              values={selection.styles}
+              values={{
+                color: selection.styles.color,
+                backgroundColor: selection.styles.backgroundColor,
+                fontFamily: selection.styles.fontFamily,
+                fontSize: selection.styles.fontSize,
+                fontWeight: selection.styles.fontWeight,
+                lineHeight: selection.styles.lineHeight,
+                margin: selection.styles.margin,
+                padding: selection.styles.padding,
+                border: selection.styles.border,
+                borderRadius: selection.styles.borderRadius,
+                overflow: selection.styles.overflow,
+                boxSizing: selection.styles.boxSizing,
+                zIndex: selection.styles.zIndex,
+              }}
               onCommit={onApplyStyle}
               onReset={onResetStyle}
             />
             <PropertyGroup title="Attributes" values={selection.attributes} />
           </>
         ) : (
-          <div className="flex h-full min-h-64 flex-col items-center justify-center px-8 text-center">
-            <Crosshair className="mb-3 size-6 text-muted-foreground" strokeWidth={1.5} />
-            <p className="text-xs leading-5 text-muted-foreground">
-              Turn on Inspect, then click any visible element in the application.
-            </p>
-          </div>
+          <>
+            <section className="border-b border-border px-3.5 py-3.5">
+              <label htmlFor="canvas-background-color" className="text-[11px] font-semibold">Canvas background</label>
+              <div className="mt-2.5 flex items-center gap-2">
+                <input
+                  id="canvas-background-color"
+                  type="color"
+                  value={canvasBackground}
+                  onChange={(event) => onCanvasBackgroundChange(event.target.value)}
+                  className="h-7 w-10 cursor-pointer rounded-[5px] border border-border bg-muted/70 p-1"
+                  aria-label="Canvas background color"
+                />
+                <span className="rounded-[5px] bg-muted/70 px-2 py-1 font-mono text-[11px] uppercase text-foreground">{canvasBackground}</span>
+              </div>
+            </section>
+            <div className="flex min-h-64 flex-col items-center justify-center px-8 text-center">
+              <CursorIcon className="mb-3 size-6 text-muted-foreground" />
+              <p className="text-xs leading-5 text-muted-foreground">
+                Turn on Inspect, then click any visible element in the application.
+              </p>
+            </div>
+          </>
         )}
       </div>
     </aside>
   );
 }
 
+function codexStatusLabel(status: CodexStatus) {
+  if (status.state === "working") return status.message || "Codex working";
+  if (status.state === "applied") return "Applied and refreshed";
+  if (status.state === "failed") return status.message || "Codex needs attention";
+  return "";
+}
+
 export function ProjectWorkspace({
   active,
   projectName,
   projectPath,
+  codexAvailability,
   onBack,
 }: {
   active: boolean;
   projectName: string;
   projectPath: string | null;
+  codexAvailability: CodexAvailability;
   onBack: () => void;
 }) {
   const isDesktop = useSyncExternalStore(subscribeToRuntime, getDesktopSnapshot, getDesktopServerSnapshot);
-  const [urlInput, setUrlInput] = useState("");
   const [canvasUrl, setCanvasUrl] = useState<string | null>(null);
   const [canvasKey, setCanvasKey] = useState(0);
   const [inspectMode, setInspectMode] = useState(false);
   const [selection, setSelection] = useState<SelectedElement | null>(null);
+  const [canvasBackground, setCanvasBackground] = useState("#f9f9f9");
   const [codexStatus, setCodexStatus] = useState<CodexStatus>({ state: "idle", message: "" });
   const [projectServerStatus, setProjectServerStatus] = useState<ProjectServerStatus>({ state: "stopped", message: "" });
   const [zoom, setZoom] = useState(0.75);
@@ -251,6 +1119,7 @@ export function ProjectWorkspace({
   const [isPanning, setIsPanning] = useState(false);
   const canvasViewportRef = useRef<HTMLDivElement>(null);
   const panStartRef = useRef<{ pointerX: number; pointerY: number; panX: number; panY: number } | null>(null);
+  const webviewHostRef = useRef<HTMLDivElement>(null);
   const webviewRef = useRef<FormiaWebviewElement>(null);
   const zoomRef = useRef(0.75);
   const panRef = useRef({ x: 0, y: 0 });
@@ -263,8 +1132,17 @@ export function ProjectWorkspace({
   }, []);
 
   useEffect(() => {
-    const webview = webviewRef.current;
-    if (!webview) return;
+    const host = webviewHostRef.current;
+    if (!host) return;
+
+    host.replaceChildren();
+    webviewRef.current = null;
+    if (!active || !isDesktop || !canvasUrl || !window.formiaDesktop) return;
+
+    const webview = document.createElement("webview") as FormiaWebviewElement;
+    webview.className = "h-full w-full";
+    webview.setAttribute("preload", window.formiaDesktop.inspectorPreloadUrl);
+    webview.setAttribute("partition", "persist:formia-canvas");
 
     const syncInspectMode = () => webview.send("formia:set-inspect-mode", false);
     const receiveSelection = (event: Event) => {
@@ -275,15 +1153,24 @@ export function ProjectWorkspace({
       }
       if (message.channel === "formia:element-selected" || message.channel === "formia:element-updated") {
         setSelection(message.args[0] as SelectedElement);
+        return;
+      }
+      if (message.channel === "formia:selection-cleared") {
+        setSelection(null);
       }
     };
 
     webview.addEventListener("did-finish-load", syncInspectMode);
     webview.addEventListener("ipc-message", receiveSelection);
+    host.appendChild(webview);
+    webviewRef.current = webview;
+    webview.setAttribute("src", canvasUrl);
 
     return () => {
       webview.removeEventListener("did-finish-load", syncInspectMode);
       webview.removeEventListener("ipc-message", receiveSelection);
+      if (webviewRef.current === webview) webviewRef.current = null;
+      webview.remove();
     };
   }, [active, canvasKey, canvasUrl, isDesktop]);
 
@@ -301,23 +1188,31 @@ export function ProjectWorkspace({
   }, []);
 
   useEffect(() => {
-    const unsubscribe = window.formiaDesktop?.onProjectServerStatus((status) => {
+    let subscribed = true;
+    const applyProjectServerStatus = (status: ProjectServerStatus) => {
       setProjectServerStatus(status);
       if (status.state === "starting") {
-        setUrlInput("");
         setCanvasUrl(null);
         setSelection(null);
       }
       if (status.url) {
-        setUrlInput(status.url);
         setCanvasUrl(status.url);
         setCanvasKey((key) => key + 1);
         setSelection(null);
       }
       if (status.state === "failed") setCanvasUrl(null);
+    };
+
+    const desktop = window.formiaDesktop;
+    const unsubscribe = desktop?.onProjectServerStatus(applyProjectServerStatus);
+    void desktop?.getProjectServerStatus().then((status) => {
+      if (subscribed) applyProjectServerStatus(status);
     });
 
-    return unsubscribe;
+    return () => {
+      subscribed = false;
+      unsubscribe?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -489,20 +1384,13 @@ export function ProjectWorkspace({
     setIsPanning(false);
   }
 
-  function loadCanvas() {
-    try {
-      const url = new URL(urlInput);
-      if (url.protocol !== "http:" && url.protocol !== "https:") return;
-      setCanvasUrl(url.toString());
-      setCanvasKey((key) => key + 1);
-      setSelection(null);
-    } catch {
-      return;
-    }
-  }
-
   function sendCanvasMessage(channel: string, ...args: unknown[]) {
     webviewRef.current?.send(channel, ...args);
+  }
+
+  function clearCanvasSelection() {
+    setSelection(null);
+    sendCanvasMessage("formia:clear-selection");
   }
 
   function resetPreview() {
@@ -530,114 +1418,24 @@ export function ProjectWorkspace({
     }
   }
 
-  function codexStatusLabel() {
-    if (codexStatus.state === "working") return codexStatus.message || "Codex working";
-    if (codexStatus.state === "applied") return "Applied and refreshed";
-    if (codexStatus.state === "failed") return codexStatus.message || "Codex needs attention";
-    return "";
-  }
-
   function goBack() {
     void window.formiaDesktop?.stopProjectServer();
     onBack();
   }
 
-  function projectStatusLabel() {
-    if (projectServerStatus.state === "starting") return projectServerStatus.message || "Starting project";
-    if (projectServerStatus.state === "ready") return "Project connected";
-    if (projectServerStatus.state === "failed") return projectServerStatus.message || "Project server failed";
-    return "";
-  }
-
   return (
-    <main className={active ? "flex h-screen overflow-hidden bg-muted/30" : "hidden"}>
+    <main className={active ? "relative flex h-screen overflow-hidden bg-muted/50" : "hidden"}>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b bg-background px-4">
-          <Button variant="ghost" size="icon" onClick={goBack} aria-label="Back to project selection">
-            <ArrowLeft />
-          </Button>
-          <div className="min-w-0">
-            <h1 className="truncate text-sm font-medium">{projectName}</h1>
-            <p className="text-xs text-muted-foreground">Canvas</p>
-          </div>
-        </header>
-
-        <div className="flex shrink-0 items-center gap-2 border-b bg-background px-4 py-2">
-          <form className="flex min-w-0 flex-1 items-center gap-2" onSubmit={(event) => { event.preventDefault(); loadCanvas(); }}>
-            <Input
-              value={urlInput}
-              onChange={(event) => setUrlInput(event.target.value)}
-              aria-label="Development server URL"
-              className="h-8 max-w-xl font-mono text-xs"
-            />
-            <Button type="submit" variant="secondary" size="sm">Load</Button>
-          </form>
-          <Button type="button" variant="outline" size="icon-sm" onClick={() => { resetPreview(); setCanvasKey((key) => key + 1); setSelection(null); }} aria-label="Reload canvas">
-            <RotateCcw />
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={inspectMode ? "default" : "outline"}
-            onClick={() => setInspectMode((enabled) => !enabled)}
-            disabled={!isDesktop}
-          >
-            <Crosshair />{inspectMode ? "Inspecting" : "Inspect"}
-          </Button>
-          <Button
-            type="button"
-            variant="default"
-            size="sm"
-            onClick={() => void buildWithCodex()}
-            disabled={!isDesktop || !projectPath || !selection?.previewChanges?.length || codexStatus.state === "working"}
-            aria-label="Build visual changes with Codex"
-            title={!projectPath ? "Select the project from the desktop app to enable Build" : "Send staged visual changes to Codex"}
-          >
-            {codexStatus.state === "working" ? <LoaderCircle className="animate-spin" /> : <Hammer />}
-            Build
-          </Button>
-          {codexStatus.state !== "idle" ? (
-            <span
-              role="status"
-              className={`hidden max-w-56 items-center gap-1.5 truncate text-xs md:inline-flex ${codexStatus.state === "failed" ? "text-destructive" : "text-muted-foreground"}`}
-              title={codexStatusLabel()}
-            >
-              {codexStatus.state === "working" ? <LoaderCircle className="size-3 animate-spin" /> : null}
-              {codexStatus.state === "applied" ? <Check className="size-3 text-emerald-600" /> : null}
-              {codexStatus.state === "failed" ? <CircleAlert className="size-3" /> : null}
-              <span className="truncate">{codexStatusLabel()}</span>
-            </span>
-          ) : null}
-          {projectServerStatus.state !== "stopped" ? (
-            <span
-              role="status"
-              className={`hidden max-w-56 items-center gap-1.5 truncate text-xs md:inline-flex ${projectServerStatus.state === "failed" ? "text-destructive" : "text-muted-foreground"}`}
-              title={projectStatusLabel()}
-            >
-              {projectServerStatus.state === "starting" ? <LoaderCircle className="size-3 animate-spin" /> : null}
-              {projectServerStatus.state === "ready" ? <Check className="size-3 text-emerald-600" /> : null}
-              {projectServerStatus.state === "failed" ? <CircleAlert className="size-3" /> : null}
-              <span className="truncate">{projectStatusLabel()}</span>
-            </span>
-          ) : null}
-          {canvasUrl ? (
-            <Button asChild type="button" variant="outline" size="icon-sm">
-              <a href={canvasUrl} target="_blank" rel="noreferrer" aria-label="Open application in a new tab"><ExternalLink /></a>
-            </Button>
-          ) : (
-            <Button type="button" variant="outline" size="icon-sm" disabled aria-label="Open application in a new tab">
-              <ExternalLink />
-            </Button>
-          )}
-        </div>
-
-        <div className="min-h-0 flex-1 p-4">
+        <div className="min-h-0 flex-1">
           <div
             ref={canvasViewportRef}
-            className={`relative h-full w-full overflow-hidden border bg-muted/40 touch-none ${isPanning || panMode ? "cursor-grabbing" : "cursor-default"}`}
+            className={`relative h-full w-full overflow-hidden touch-none ${isPanning || panMode ? "cursor-grabbing" : "cursor-default"}`}
+            style={{ backgroundColor: canvasBackground }}
             onWheel={handleCanvasWheel}
             onPointerDown={(event) => {
-              if (event.target === event.currentTarget || event.button === 1) beginPan(event);
+              const clickedWebview = event.target === webviewRef.current;
+              if (!clickedWebview) clearCanvasSelection();
+              if (!clickedWebview || event.button === 1) beginPan(event);
             }}
             onPointerMove={movePan}
             onPointerUp={endPan}
@@ -645,40 +1443,30 @@ export function ProjectWorkspace({
           >
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute inset-0 opacity-70"
-              style={{ backgroundImage: "linear-gradient(to right, color-mix(in oklch, var(--border) 55%, transparent) 1px, transparent 1px), linear-gradient(to bottom, color-mix(in oklch, var(--border) 55%, transparent) 1px, transparent 1px)", backgroundSize: "24px 24px" }}
+              className="pointer-events-none absolute inset-0 opacity-50"
+              style={{ backgroundImage: "linear-gradient(to right, color-mix(in oklch, var(--border) 40%, transparent) 1px, transparent 1px), linear-gradient(to bottom, color-mix(in oklch, var(--border) 40%, transparent) 1px, transparent 1px)", backgroundSize: "24px 24px" }}
             />
-            <div
-              className="absolute"
-              style={{
-                left: "50%",
-                top: "50%",
-                width: artboardSize.width,
-                height: artboardSize.height,
-                transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px)`,
-              }}
-            >
               <div
-                className="h-full w-full shadow-2xl ring-1 ring-black/10"
-                style={{ transform: `scale(${zoom})`, transformOrigin: "center center" }}
+                className="absolute"
+                style={{
+                  left: "50%",
+                  top: "50%",
+                  width: artboardSize.width,
+                  height: artboardSize.height,
+                  transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px)`,
+                }}
               >
-                <div className="h-full w-full overflow-hidden bg-white">
-                  {active && isDesktop && window.formiaDesktop && canvasUrl ? (
-                    <webview
-                      key={`${canvasUrl}-${canvasKey}`}
-                      ref={webviewRef}
-                      src={canvasUrl}
-                      preload={window.formiaDesktop.inspectorPreloadUrl}
-                      partition="persist:formia-canvas"
-                      className="h-full w-full"
-                    />
-                  ) : canvasUrl ? (
-                    <iframe key={`${canvasUrl}-${canvasKey}`} src={canvasUrl} title={`${projectName} application canvas`} className="h-full w-full" />
-                  ) : (
+                <div className="h-full w-full shadow-[0_2px_8px_rgba(0,0,0,0.04),0_4px_40px_rgba(0,0,0,0.05)] ring-1 ring-black/5" style={{ transform: `scale(${zoom})`, transformOrigin: "center center" }}>
+                  <div className="h-full w-full overflow-hidden bg-white">
+                    {active && isDesktop && window.formiaDesktop && canvasUrl ? (
+                      <div key={`${canvasUrl}-${canvasKey}`} ref={webviewHostRef} className="h-full w-full" />
+                    ) : canvasUrl ? (
+                      <iframe key={`${canvasUrl}-${canvasKey}`} src={canvasUrl} title={`${projectName} application canvas`} className="h-full w-full" />
+                    ) : (
                     <div className="flex h-full w-full items-center justify-center bg-background px-10 text-center">
                       <div>
-                        {projectServerStatus.state === "starting" ? <LoaderCircle className="mx-auto mb-3 size-5 animate-spin text-muted-foreground" /> : null}
-                        {projectServerStatus.state === "failed" ? <CircleAlert className="mx-auto mb-3 size-5 text-destructive" /> : null}
+                        {projectServerStatus.state === "starting" ? <CircleNotchIcon className="mx-auto mb-3 size-5 animate-spin text-muted-foreground" /> : null}
+                        {projectServerStatus.state === "failed" ? <WarningCircleIcon className="mx-auto mb-3 size-5 text-destructive" /> : null}
                         <p className="text-sm font-medium">
                           {projectServerStatus.state === "failed" ? "Project server could not start" : "Starting project server"}
                         </p>
@@ -703,38 +1491,63 @@ export function ProjectWorkspace({
               />
             ) : null}
 
-            <div className="absolute bottom-4 left-4 z-30 flex items-center gap-1 rounded-xl border bg-background/95 p-1 shadow-lg backdrop-blur">
-              <Button type="button" variant={panMode ? "default" : "ghost"} size="icon-sm" onClick={() => setPanMode((enabled) => !enabled)} aria-label="Pan canvas" title="Pan canvas (Space + drag)">
-                <Hand />
-              </Button>
+            <div className="absolute bottom-4 left-4 z-30 flex items-center gap-1 rounded-xl border border-border/70 bg-background/95 p-1 shadow-[0_2px_8px_rgba(0,0,0,0.04),0_4px_40px_rgba(0,0,0,0.03)] backdrop-blur">
+              <Hint content="Pan canvas (Space + drag)">
+                <Button type="button" variant={panMode ? "default" : "ghost"} size="icon-sm" onClick={() => setPanMode((enabled) => !enabled)} aria-label="Pan canvas (Space + drag)">
+                  <HandGrabbingIcon />
+                </Button>
+              </Hint>
               <div className="mx-1 h-5 w-px bg-border" />
               <Button type="button" variant="ghost" size="icon-sm" onClick={() => zoomCanvas(-0.1)} disabled={zoom <= minZoom} aria-label="Zoom out">
-                <Minus />
+                <MinusIcon />
               </Button>
               <span className="min-w-12 text-center text-xs font-medium tabular-nums text-muted-foreground" aria-label={`Canvas zoom ${Math.round(zoom * 100)} percent`}>
                 {Math.round(zoom * 100)}%
               </span>
               <Button type="button" variant="ghost" size="icon-sm" onClick={() => zoomCanvas(0.1)} disabled={zoom >= maxZoom} aria-label="Zoom in">
-                <Plus />
+                <PlusIcon />
               </Button>
               <div className="mx-1 h-5 w-px bg-border" />
-              <Button type="button" variant="ghost" size="icon-sm" onClick={fitCanvas} aria-label="Fit artboard to canvas" title="Fit artboard to canvas">
-                <Maximize2 />
-              </Button>
+              <Hint content="Fit artboard to canvas">
+                <Button type="button" variant="ghost" size="icon-sm" onClick={fitCanvas} aria-label="Fit artboard to canvas">
+                  <ArrowsOutIcon />
+                </Button>
+              </Hint>
             </div>
             <div className="pointer-events-none absolute bottom-5 right-5 z-10 hidden text-[11px] text-muted-foreground sm:block">
               Scroll to zoom · Pinch to zoom · Shift + scroll to pan · Space + drag
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      </div>
+
+      <Hint content="Back to project selection">
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="absolute left-3 top-3 z-40 bg-background/95 shadow-[0_2px_8px_rgba(0,0,0,0.08)] backdrop-blur"
+          onClick={goBack}
+          aria-label="Back to project selection"
+        >
+          <ArrowLeftIcon />
+        </Button>
+      </Hint>
 
       <PropertiesSidebar
         selection={selection}
+        projectPath={projectPath}
+        inspectMode={inspectMode}
+        isDesktop={isDesktop}
+        codexAvailability={codexAvailability}
+        codexStatus={codexStatus}
+        projectServerStatus={projectServerStatus}
+        canvasBackground={canvasBackground}
+        onToggleInspect={() => setInspectMode((enabled) => !enabled)}
+        onBuild={() => void buildWithCodex()}
+        onCanvasBackgroundChange={setCanvasBackground}
         onApplyStyle={(property, value) => sendCanvasMessage("formia:apply-style", { property, value })}
         onResetStyle={(property) => sendCanvasMessage("formia:reset-style", property)}
-        onApplyClassName={(value) => sendCanvasMessage("formia:apply-class", value)}
-        onResetClassName={() => sendCanvasMessage("formia:reset-class")}
         onApplyText={(value) => sendCanvasMessage("formia:apply-text", value)}
         onResetText={() => sendCanvasMessage("formia:reset-text")}
         onResetAll={resetPreview}

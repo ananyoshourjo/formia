@@ -21,6 +21,7 @@ The current prototype is a minimal Next.js and shadcn/ui interface packaged as a
 - Selected properties can be edited as temporary preview overrides. The current preview editor supports class names, text content, and a constrained set of inline CSS properties, with per-property and full-preview reset actions.
 - Preview overrides are tracked as staged changes without modifying the project source. The **Build** action sends the selected element, runtime context, and staged changes to Codex in the background.
 - The Electron main process starts a local Codex app-server for the selected project, allows it to make source-level changes inside that project, reports working/applied/failed status, and refreshes the preview after a successful turn.
+- The background Build task currently uses GPT-5.6 Luna with medium reasoning as its default model configuration.
 - The application preview sits on an infinite-style canvas with a 1440×900 artboard. The canvas supports panning, mouse-wheel zoom, trackpad scrolling, pinch zooming, and zoom from 10% through 400% with pointer-centered smoothing.
 - The earlier component-folder scanner and component inventory have been removed because Formia is now centered on the whole running application rather than isolated component discovery.
 

@@ -11,6 +11,8 @@ const developmentUrl = process.env.ELECTRON_RENDERER_URL;
 let activeCodexJob = null;
 let activeProjectServer = null;
 let selectedProjectPath = null;
+let latestProjectServerStatus = { state: "stopped", message: "Project server stopped" };
+let latestCodexAvailability = { state: "checking", message: "Checking for Codex" };
 
 function isExternalUrl(url) {
   return url.startsWith("http://") || url.startsWith("https://");
@@ -22,7 +24,15 @@ function sendCodexStatus(status) {
   }
 }
 
+function sendCodexAvailability(status) {
+  latestCodexAvailability = status;
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.webContents.send("formia:codex-availability", status);
+  }
+}
+
 function sendProjectServerStatus(status) {
+  latestProjectServerStatus = status;
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) window.webContents.send("formia:project-server-status", status);
   }
@@ -535,6 +545,42 @@ class CodexAppServer {
   }
 }
 
+async function detectCodexAvailability() {
+  sendCodexAvailability({ state: "checking", message: "Checking for Codex" });
+
+  let output = "";
+  const server = new CodexAppServer({
+    cwd: app.getPath("home"),
+    onOutput: (chunk) => {
+      output = `${output}\n${chunk}`.slice(-4000);
+    },
+  });
+  let timeout = null;
+
+  try {
+    const startup = server.start();
+    const timeoutPromise = new Promise((_, reject) => {
+      timeout = setTimeout(() => reject(new Error("Codex did not respond within 5 seconds.")), 5000);
+    });
+    await Promise.race([
+      startup,
+      timeoutPromise,
+    ]);
+    sendCodexAvailability({ state: "available", message: "Codex is ready" });
+  } catch (error) {
+    const detail = stripAnsi(output).trim().split(/\r?\n/).filter(Boolean).at(-1);
+    const message = error?.code === "ENOENT"
+      ? "Codex CLI is not installed or is not on PATH."
+      : detail
+        ? `Codex is unavailable: ${detail.slice(-220)}`
+        : "Codex is unavailable. Check that the Codex CLI is installed and signed in.";
+    sendCodexAvailability({ state: "unavailable", message });
+  } finally {
+    clearTimeout(timeout);
+    server.stop();
+  }
+}
+
 async function runCodexBuild(payload, jobId) {
   const projectPath = typeof payload?.projectPath === "string" ? path.resolve(payload.projectPath) : "";
   if (!projectPath || !fs.existsSync(projectPath) || !fs.statSync(projectPath).isDirectory()) {
@@ -542,6 +588,9 @@ async function runCodexBuild(payload, jobId) {
   }
   if (!selectedProjectPath || path.resolve(selectedProjectPath).toLowerCase() !== projectPath.toLowerCase()) {
     throw new Error("Build is only allowed for the project selected in Formia.");
+  }
+  if (latestCodexAvailability.state !== "available") {
+    throw new Error(latestCodexAvailability.message);
   }
 
   if (activeCodexJob) throw new Error("A Codex build is already running.");
@@ -568,7 +617,7 @@ async function runCodexBuild(payload, jobId) {
     await server.start();
     const threadResult = await server.request("thread/start", {
       cwd: projectPath,
-      model: "gpt-5.4",
+      model: "gpt-5.6-luna",
       sandbox: "workspace-write",
       approvalPolicy: "never",
       serviceName: "formia",
@@ -587,6 +636,7 @@ async function runCodexBuild(payload, jobId) {
         networkAccess: false,
       },
       approvalPolicy: "never",
+      effort: "medium",
     });
 
     await new Promise((resolve, reject) => {
@@ -645,6 +695,10 @@ ipcMain.handle("formia:open-project", (_event, projectPath) => {
   return openProjectPath(projectPath);
 });
 
+ipcMain.handle("formia:get-project-server-status", () => latestProjectServerStatus);
+
+ipcMain.handle("formia:get-codex-availability", () => latestCodexAvailability);
+
 ipcMain.handle("formia:stop-project-server", () => {
   activeProjectServer?.stop();
   activeProjectServer = null;
@@ -702,6 +756,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
+  void detectCodexAvailability();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
