@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
   output: isElectronBuild ? "export" : undefined,
   assetPrefix: isElectronBuild ? "." : undefined,
   trailingSlash: isElectronBuild,
+  experimental: {
+    optimizePackageImports: ["@phosphor-icons/react"],
+  },
 };
 
 export default nextConfig;

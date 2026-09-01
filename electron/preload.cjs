@@ -10,8 +10,15 @@ contextBridge.exposeInMainWorld("formiaDesktop", {
   inspectorPreloadUrl,
   selectProject: () => ipcRenderer.invoke("formia:select-project"),
   openProject: (projectPath) => ipcRenderer.invoke("formia:open-project", projectPath),
+  getProjectServerStatus: () => ipcRenderer.invoke("formia:get-project-server-status"),
   stopProjectServer: () => ipcRenderer.invoke("formia:stop-project-server"),
   buildWithCodex: (payload) => ipcRenderer.invoke("formia:codex-build", payload),
+  getCodexAvailability: () => ipcRenderer.invoke("formia:get-codex-availability"),
+  onCodexAvailability: (callback) => {
+    const listener = (_event, status) => callback(status);
+    ipcRenderer.on("formia:codex-availability", listener);
+    return () => ipcRenderer.removeListener("formia:codex-availability", listener);
+  },
   onProjectServerStatus: (callback) => {
     const listener = (_event, status) => callback(status);
     ipcRenderer.on("formia:project-server-status", listener);

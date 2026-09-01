@@ -1,9 +1,10 @@
 "use client";
 
 import { type ChangeEvent, type InputHTMLAttributes, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowRight, Clock3, FolderOpen, LoaderCircle, X } from "lucide-react";
+import { ArrowRightIcon, CheckIcon, CircleNotchIcon, FolderOpenIcon, WarningCircleIcon, XIcon } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
+import { Hint } from "@/components/ui/tooltip";
 
 const directoryInputProps = {
   webkitdirectory: "",
@@ -12,6 +13,7 @@ const directoryInputProps = {
 
 type Project = { name: string; path: string | null; url?: string | null; error?: string };
 type RecentProject = { name: string; path: string };
+type CodexAvailability = { state: "checking" | "available" | "unavailable"; message: string };
 
 const recentProjectsKey = "formia:recent-projects";
 const recentProjectsEvent = "formia:recent-projects-changed";
@@ -71,7 +73,7 @@ function removeRecentProject(projectPath: string) {
   window.dispatchEvent(new Event(recentProjectsEvent));
 }
 
-export function ProjectSelector({ onOpen }: { onOpen: (project: Project) => void }) {
+export function ProjectSelector({ codexAvailability, onOpen }: { codexAvailability: CodexAvailability; onOpen: (project: Project) => void }) {
   const directoryInputRef = useRef<HTMLInputElement>(null);
   const recentProjects = useSyncExternalStore(subscribeToRecentProjects, readRecentProjects, () => emptyRecentProjects);
   const [openingPath, setOpeningPath] = useState<string | null>(null);
@@ -113,7 +115,7 @@ export function ProjectSelector({ onOpen }: { onOpen: (project: Project) => void
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-6 py-12">
+    <main className="min-h-screen bg-background text-foreground">
       <input
         ref={directoryInputRef}
         type="file"
@@ -122,62 +124,95 @@ export function ProjectSelector({ onOpen }: { onOpen: (project: Project) => void
         onChange={openProject}
         {...directoryInputProps}
       />
-      <div className="w-full max-w-xl">
-        <div className="mb-10">
-          <p className="mb-3 text-sm font-medium text-muted-foreground">Formia</p>
-          <h1 className="text-3xl font-semibold tracking-tight">Open a project</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Choose a local React project to inspect and edit visually.</p>
-          <Button className="mt-6" size="lg" onClick={() => {
-            if (window.formiaDesktop) void selectProject();
-            else directoryInputRef.current?.click();
-          }}>
-            <FolderOpen />
-            Select project
-          </Button>
-        </div>
+      <div className="flex min-h-screen">
+        <aside className="hidden w-64 shrink-0 flex-col border-r border-border bg-sidebar p-3 md:flex">
+          <div className="flex h-9 items-center px-2">
+            <span className="text-sm font-semibold tracking-tight">Formia</span>
+          </div>
 
-        {recentProjects.length > 0 ? (
-          <section aria-labelledby="recent-projects-heading">
-            <div className="mb-3 flex items-center gap-2 text-sm font-medium" id="recent-projects-heading">
-              <Clock3 className="size-4 text-muted-foreground" />
-              Recent projects
-            </div>
-            <div className="overflow-hidden rounded-xl border border-border bg-card">
-              {recentProjects.map((project, index) => {
+          <Button
+            type="button"
+            variant="secondary"
+            size="lg"
+            className="mt-3 w-full justify-start"
+            onClick={() => {
+              if (window.formiaDesktop) void selectProject();
+              else directoryInputRef.current?.click();
+            }}
+          >
+            <FolderOpenIcon className="size-4 text-[#8f8f8f]" />
+            Open project
+          </Button>
+
+          <section className="mt-8" aria-labelledby="recent-projects-heading">
+            <p id="recent-projects-heading" className="px-2 text-xs font-medium text-muted-foreground">Recent projects</p>
+            <div className="mt-2 space-y-0.5">
+              {recentProjects.length > 0 ? recentProjects.map((project) => {
                 const isOpening = openingPath === project.path;
                 const error = recentError?.path === project.path ? recentError.message : null;
                 return (
-                  <div key={project.path} className={index === 0 ? "" : "border-t border-border"}>
-                    <div className="flex items-center gap-3 px-4 py-3">
+                  <div key={project.path} className="group">
+                    <div className="flex items-center gap-1">
                       <button
                         type="button"
-                        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                        className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-[10px] px-2.5 text-left text-sm font-normal outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
                         disabled={Boolean(openingPath)}
                         onClick={() => void openRecentProject(project)}
                       >
-                        <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium">{project.name}</span>
-                          <span className="block truncate text-xs text-muted-foreground">{project.path}</span>
-                          {error ? <span className="mt-1 block text-xs text-destructive">{error}</span> : null}
-                        </span>
-                        {isOpening ? <LoaderCircle className="size-4 shrink-0 animate-spin text-muted-foreground" /> : <ArrowRight className="size-4 shrink-0 text-muted-foreground" />}
+                        <FolderOpenIcon className="size-4 shrink-0 text-[#8f8f8f]" />
+                        <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                        {isOpening ? <CircleNotchIcon className="size-4 shrink-0 animate-spin text-[#8f8f8f]" /> : <ArrowRightIcon className="size-4 shrink-0 text-[#8f8f8f] opacity-0 transition-opacity group-hover:opacity-100" />}
                       </button>
                       <Button
                         aria-label={`Remove ${project.name} from recent projects`}
                         variant="ghost"
                         size="icon-xs"
+                        className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                         onClick={() => removeRecentProject(project.path)}
                       >
-                        <X />
+                        <XIcon />
                       </Button>
                     </div>
+                    {error ? <Hint content={error}><p className="truncate px-2.5 pb-1 text-xs text-destructive">{error}</p></Hint> : null}
                   </div>
                 );
-              })}
+              }) : (
+                <p className="px-2.5 text-xs leading-5 text-muted-foreground">No recent projects</p>
+              )}
             </div>
           </section>
-        ) : null}
+
+          <div className="mt-auto border-t border-border px-2 pt-3">
+            <p className="text-xs font-medium">Local workspace</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">Inspect and edit projects on this device.</p>
+          </div>
+        </aside>
+
+        <section className="flex min-w-0 flex-1 items-center justify-center px-6 py-12" aria-labelledby="open-project-heading">
+          <div className="w-full max-w-xl">
+            <div className="mb-10">
+              <div className="mb-4 flex items-center gap-2 text-sm font-medium text-muted-foreground md:hidden">
+                <span className="size-2 rounded-full bg-foreground" />
+                Formia
+              </div>
+              <h1 id="open-project-heading" className="text-2xl font-normal tracking-tight">Open a project</h1>
+              <p className="mt-2 text-sm text-muted-foreground">Choose a local React project to inspect and edit visually.</p>
+              <Button className="mt-6" size="lg" onClick={() => {
+                if (window.formiaDesktop) void selectProject();
+                else directoryInputRef.current?.click();
+              }}>
+                <FolderOpenIcon />
+                Select project
+              </Button>
+              <p className={`mt-4 flex items-center gap-1.5 text-xs ${codexAvailability.state === "unavailable" ? "text-destructive" : "text-muted-foreground"}`} role="status">
+                {codexAvailability.state === "checking" ? <CircleNotchIcon className="size-3.5 animate-spin" /> : null}
+                {codexAvailability.state === "available" ? <CheckIcon className="size-3.5 text-emerald-600" /> : null}
+                {codexAvailability.state === "unavailable" ? <WarningCircleIcon className="size-3.5" /> : null}
+                <span>{codexAvailability.message}</span>
+              </p>
+            </div>
+          </div>
+        </section>
       </div>
     </main>
   );

@@ -7,8 +7,37 @@ let selectionSequence = 0;
 
 const selectionAttribute = "data-formia-selection-id";
 const editableStyleProperties = new Set([
+  "x",
+  "y",
+  "width",
+  "height",
+  "minWidth",
+  "minHeight",
+  "transform",
   "display",
   "position",
+  "top",
+  "bottom",
+  "right",
+  "left",
+  "flexDirection",
+  "flexWrap",
+  "rowGap",
+  "columnGap",
+  "flexGrow",
+  "flexShrink",
+  "flexBasis",
+  "order",
+  "alignSelf",
+  "justifySelf",
+  "gridTemplateColumns",
+  "gridTemplateRows",
+  "gridAutoFlow",
+  "gridColumnStart",
+  "gridColumnEnd",
+  "gridRowStart",
+  "gridRowEnd",
+  "gridArea",
   "color",
   "backgroundColor",
   "fontFamily",
@@ -22,6 +51,9 @@ const editableStyleProperties = new Set([
   "gap",
   "alignItems",
   "justifyContent",
+  "overflow",
+  "boxSizing",
+  "zIndex",
 ]);
 const elementSnapshots = new WeakMap();
 const touchedElements = new Set();
@@ -35,6 +67,32 @@ Object.assign(overlay.style, {
   border: "2px solid #2563eb",
   background: "rgba(37, 99, 235, 0.08)",
 });
+
+const scrollbarStyle = document.createElement("style");
+scrollbarStyle.textContent = `
+  html, body, * {
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar,
+  *::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+`;
+
+function installScrollbarStyle() {
+  if (!scrollbarStyle.isConnected && document.documentElement) {
+    document.documentElement.appendChild(scrollbarStyle);
+  }
+}
+
+installScrollbarStyle();
+if (!scrollbarStyle.isConnected) {
+  document.addEventListener("DOMContentLoaded", installScrollbarStyle, { once: true });
+}
 
 function ensureOverlay() {
   if (!overlay.isConnected && document.documentElement) {
@@ -77,6 +135,17 @@ function snapshotFor(element) {
   return snapshot;
 }
 
+function rememberInlineStyle(element, cssName) {
+  const snapshot = snapshotFor(element);
+  if (!snapshot.styles.has(cssName)) {
+    snapshot.styles.set(cssName, {
+      value: element.style.getPropertyValue(cssName),
+      priority: element.style.getPropertyPriority(cssName),
+    });
+  }
+  return snapshot;
+}
+
 function selectElement(element) {
   if (selectedElement && selectedElement !== element) {
     selectedElement.removeAttribute(selectionAttribute);
@@ -89,6 +158,22 @@ function selectElement(element) {
   }
 }
 
+function clearSelection() {
+  if (selectedElement) selectedElement.removeAttribute(selectionAttribute);
+  selectedElement = null;
+  hideOverlay();
+  ipcRenderer.sendToHost("formia:selection-cleared");
+}
+
+function isDocumentSurface(element) {
+  return element === document.body || element === document.documentElement || element === document.scrollingElement;
+}
+
+function isSelectionBackground(element) {
+  if (isDocumentSurface(element)) return true;
+  return Boolean(selectedElement && element !== selectedElement && element.contains(selectedElement));
+}
+
 function sendUpdatedSelection() {
   if (selectedElement) {
     ipcRenderer.sendToHost("formia:element-updated", selectionPayload(selectedElement));
@@ -98,14 +183,32 @@ function sendUpdatedSelection() {
 function applyStyle(property, value) {
   if (!selectedElement || !editableStyleProperties.has(property) || typeof value !== "string") return;
 
-  const cssName = cssPropertyName(property);
-  const snapshot = snapshotFor(selectedElement);
-  if (!snapshot.styles.has(cssName)) {
-    snapshot.styles.set(cssName, {
-      value: selectedElement.style.getPropertyValue(cssName),
-      priority: selectedElement.style.getPropertyPriority(cssName),
-    });
+  if (property === "x" || property === "y") {
+    const coordinate = Number.parseFloat(value);
+    if (!Number.isFinite(coordinate)) return;
+
+    const cssName = property === "x" ? "left" : "top";
+    const rect = selectedElement.getBoundingClientRect();
+    const computed = getComputedStyle(selectedElement);
+    const currentCoordinate = property === "x" ? rect.x : rect.y;
+    const currentOffset = Number.parseFloat(computed.getPropertyValue(cssName)) || 0;
+    const snapshot = rememberInlineStyle(selectedElement, cssName);
+
+    if (computed.position === "static") {
+      rememberInlineStyle(selectedElement, "position");
+      snapshot.autoPosition = true;
+      selectedElement.style.setProperty("position", "relative", "important");
+    }
+
+    const nextOffset = currentOffset + coordinate - currentCoordinate;
+    selectedElement.style.setProperty(cssName, `${nextOffset}px`, "important");
+    sendUpdatedSelection();
+    return;
   }
+
+  const cssName = cssPropertyName(property);
+  const snapshot = rememberInlineStyle(selectedElement, cssName);
+  if (property === "position") snapshot.autoPosition = false;
 
   selectedElement.style.setProperty(cssName, value.trim(), "important");
   sendUpdatedSelection();
@@ -114,7 +217,8 @@ function applyStyle(property, value) {
 function resetStyle(property) {
   if (!selectedElement || !editableStyleProperties.has(property)) return;
 
-  const cssName = cssPropertyName(property);
+  const isCoordinate = property === "x" || property === "y";
+  const cssName = property === "x" ? "left" : property === "y" ? "top" : cssPropertyName(property);
   const snapshot = elementSnapshots.get(selectedElement);
   const original = snapshot?.styles.get(cssName);
   if (!original) return;
@@ -125,6 +229,18 @@ function resetStyle(property) {
     selectedElement.style.removeProperty(cssName);
   }
   snapshot.styles.delete(cssName);
+
+  if (isCoordinate && snapshot.autoPosition && !snapshot.styles.has("left") && !snapshot.styles.has("top")) {
+    const originalPosition = snapshot.styles.get("position");
+    if (originalPosition?.value) {
+      selectedElement.style.setProperty("position", originalPosition.value, originalPosition.priority);
+    } else {
+      selectedElement.style.removeProperty("position");
+    }
+    snapshot.styles.delete("position");
+    snapshot.autoPosition = false;
+  }
+
   sendUpdatedSelection();
 }
 
@@ -198,6 +314,20 @@ function resetAllOverrides() {
   sendUpdatedSelection();
 }
 
+function inspectAtPoint(x, y) {
+  if (!inspectMode || !Number.isFinite(x) || !Number.isFinite(y)) return;
+
+  const element = document.elementFromPoint(x, y);
+  if (!(element instanceof Element) || element === overlay) return;
+  if (isSelectionBackground(element)) {
+    clearSelection();
+    return;
+  }
+  moveOverlay(element);
+  selectElement(element);
+  ipcRenderer.sendToHost("formia:element-selected", selectionPayload(element));
+}
+
 function compactValue(value, depth = 0, seen = new WeakSet()) {
   if (value == null || ["string", "number", "boolean"].includes(typeof value)) return value;
   if (typeof value === "function") return `[function ${value.name || "anonymous"}]`;
@@ -247,7 +377,6 @@ function getReactDetails(element) {
 function inspectElement(element) {
   const computed = getComputedStyle(element);
   const rect = element.getBoundingClientRect();
-
   return {
     selectionId: element.getAttribute(selectionAttribute),
     tagName: element.tagName.toLowerCase(),
@@ -267,8 +396,38 @@ function inspectElement(element) {
       y: Math.round(rect.y * 100) / 100,
     },
     styles: {
+      width: computed.width,
+      height: computed.height,
+      minWidth: computed.minWidth,
+      minHeight: computed.minHeight,
+      transform: element.style.getPropertyValue("transform") || computed.transform,
       display: computed.display,
       position: computed.position,
+      top: computed.top,
+      bottom: computed.bottom,
+      right: computed.right,
+      left: computed.left,
+      flexDirection: computed.flexDirection,
+      flexWrap: computed.flexWrap,
+      rowGap: computed.rowGap,
+      columnGap: computed.columnGap,
+      flexGrow: computed.flexGrow,
+      flexShrink: computed.flexShrink,
+      flexBasis: computed.flexBasis,
+      order: computed.order,
+      alignSelf: computed.alignSelf,
+      justifySelf: computed.justifySelf,
+      gridTemplateColumns: computed.gridTemplateColumns,
+      gridTemplateRows: computed.gridTemplateRows,
+      gridAutoFlow: computed.gridAutoFlow,
+      gridColumnStart: computed.gridColumnStart,
+      gridColumnEnd: computed.gridColumnEnd,
+      gridRowStart: computed.gridRowStart,
+      gridRowEnd: computed.gridRowEnd,
+      gridArea: computed.gridArea,
+      overflow: computed.overflow,
+      boxSizing: computed.boxSizing,
+      zIndex: computed.zIndex,
       color: computed.color,
       backgroundColor: computed.backgroundColor,
       fontFamily: computed.fontFamily,
@@ -283,6 +442,9 @@ function inspectElement(element) {
       alignItems: computed.alignItems,
       justifyContent: computed.justifyContent,
     },
+    parentLayout: element.parentElement
+      ? { display: getComputedStyle(element.parentElement).display }
+      : null,
     react: getReactDetails(element),
   };
 }
@@ -364,6 +526,10 @@ window.addEventListener(
     if (!(element instanceof Element) || element === overlay) return;
     event.preventDefault();
     event.stopImmediatePropagation();
+    if (isSelectionBackground(element)) {
+      clearSelection();
+      return;
+    }
     moveOverlay(element);
     selectElement(element);
     ipcRenderer.sendToHost("formia:element-selected", selectionPayload(element));
@@ -391,6 +557,14 @@ window.addEventListener(
 ipcRenderer.on("formia:set-inspect-mode", (_event, enabled) => {
   inspectMode = Boolean(enabled);
   if (!inspectMode) hideOverlay();
+});
+
+ipcRenderer.on("formia:clear-selection", () => {
+  clearSelection();
+});
+
+ipcRenderer.on("formia:inspect-at-point", (_event, payload) => {
+  inspectAtPoint(Number(payload?.x), Number(payload?.y));
 });
 
 ipcRenderer.on("formia:apply-style", (_event, payload) => {
