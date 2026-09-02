@@ -3,6 +3,8 @@
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AlignLeftIcon, AngleIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowsOutIcon, CaretDownIcon, CheckIcon, CircleNotchIcon, ColumnsIcon, CursorIcon, DotIcon, DotsNineIcon, FlipHorizontalIcon, FlipVerticalIcon, GridFourIcon, HandGrabbingIcon, LinkSimpleHorizontalIcon, MinusIcon, PlusIcon, RowsIcon, SplitHorizontalIcon, SquareIcon, StackSimpleIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { AlignBottomFilled, AlignHorizontalCenterFilled, AlignLeft2Filled, AlignRight2Filled, AlignTopFilled, Columns3Filled } from "@mingcute/react/core-filled";
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
+import { AArrowUpIcon, CaseLowerIcon, CaseSensitiveIcon, CaseUpperIcon, FitToScreenIcon, MinusSignIcon, ParagraphSpacingIcon, TextAlignCenterIcon, TextAlignJustifyCenterIcon, TextAlignLeft01Icon, TextAlignLeftIcon, TextAlignRight01Icon, TextAlignRightIcon, TextStrikethroughIcon, TextUnderlineIcon, TextVariableFrontIcon, XLineTopIcon } from "@hugeicons/core-free-icons";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { ColorPicker } from "@/components/ui/color-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Hint } from "@/components/ui/tooltip";
 
@@ -83,18 +86,24 @@ function clampZoom(value: number) {
   return Math.min(maxZoom, Math.max(minZoom, value));
 }
 
+const inspectorSectionClass = "border-b border-border px-3 py-2.5";
+const inspectorHeadingClass = "text-[14px] leading-4 font-medium text-foreground";
+const inspectorTitleClass = `mb-2 ${inspectorHeadingClass}`;
+const inspectorLabelClass = "text-[12px] leading-4 font-normal text-muted-foreground";
+const inspectorFieldClass = "min-w-0 rounded-[5px] border border-border bg-background px-2 text-[14px] leading-4 text-foreground shadow-none";
+
 function PropertyGroup({ title, values }: { title: string; values: Record<string, unknown> }) {
   const entries = Object.entries(values);
   if (entries.length === 0) return null;
 
   return (
-    <section className="border-b border-border px-3.5 py-3.5 last:border-b-0">
-      <h3 className="mb-2.5 text-[11px] font-semibold text-foreground">{title}</h3>
-      <dl className="space-y-1.5">
+    <section className={inspectorSectionClass}>
+      <h3 className={inspectorTitleClass}>{title}</h3>
+      <dl className="space-y-1">
         {entries.map(([name, value]) => (
-          <div key={name} className="grid grid-cols-[5.25rem_minmax(0,1fr)] items-center gap-2 text-[11px]">
-            <Hint content={name}><dt className="truncate text-muted-foreground">{name}</dt></Hint>
-            <dd className="min-w-0 whitespace-pre-wrap break-words rounded-[5px] bg-muted/70 px-2 py-1 text-foreground">
+          <div key={name} className="space-y-1">
+            <Hint content={name}><dt className={`${inspectorLabelClass} truncate`}>{name}</dt></Hint>
+            <dd className={`${inspectorFieldClass} min-h-7 whitespace-pre-wrap break-words py-1`}>
               {typeof value === "string" || typeof value === "number" ? String(value) : JSON.stringify(value, null, 2)}
             </dd>
           </div>
@@ -104,56 +113,392 @@ function PropertyGroup({ title, values }: { title: string; values: Record<string
   );
 }
 
-function EditableProperty({
-  name,
+function resizeContentTextarea(textarea: HTMLTextAreaElement | null) {
+  if (!textarea) return;
+  textarea.style.height = "0px";
+  textarea.style.height = `${Math.max(28, textarea.scrollHeight)}px`;
+}
+
+function ContentGroup({
   value,
   onCommit,
   onReset,
 }: {
-  name: string;
   value: string;
   onCommit: (value: string) => void;
   onReset: () => void;
 }) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    resizeContentTextarea(textareaRef.current);
+  }, [value]);
+
   return (
-    <div className="grid grid-cols-[5.25rem_minmax(0,1fr)_1.5rem] items-center gap-2 text-[11px]">
-      <Hint content={name}><label className="truncate text-muted-foreground">{name}</label></Hint>
+    <section className={inspectorSectionClass}>
+      <h3 className={inspectorTitleClass}>Content</h3>
+      <div className="group relative">
+        <textarea
+          ref={textareaRef}
+          value={value}
+          rows={1}
+          aria-label="Edit content"
+          className={`${inspectorFieldClass} block h-7 w-full resize-none overflow-hidden py-1 pr-7 font-normal transition-colors hover:bg-muted/30 focus:bg-muted/25 focus:outline-none focus:ring-1 focus:ring-foreground/5`}
+          onChange={(event) => {
+            onCommit(event.currentTarget.value);
+            resizeContentTextarea(event.currentTarget);
+          }}
+        />
+        <Hint content="Reset content">
+          <Button type="button" variant="ghost" size="icon-xs" className="absolute right-1 top-1/2 size-4 -translate-y-1/2 rounded bg-background p-0 text-muted-foreground opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100" onClick={onReset} aria-label="Reset content">
+            <ArrowCounterClockwiseIcon className="size-3.5" />
+          </Button>
+        </Hint>
+      </div>
+    </section>
+  );
+}
+
+const typographyUnits = [
+  { value: "px", label: "Pixels" },
+  { value: "rem", label: "Rem" },
+  { value: "em", label: "Em" },
+  { value: "%", label: "Percent" },
+  { value: "vw", label: "Viewport width" },
+  { value: "vh", label: "Viewport height" },
+] as const;
+
+const lineHeightUnits = [
+  { value: "unitless", label: "Unitless" },
+  ...typographyUnits,
+] as const;
+
+type TypographyMetricUnit = string;
+
+const defaultFontFamilies = [
+  "Arial",
+  "Calibri",
+  "Courier New",
+  "Georgia",
+  "Helvetica Neue",
+  "Inter",
+  "Segoe UI",
+  "Tahoma",
+  "Times New Roman",
+  "Verdana",
+  "ui-monospace",
+  "ui-sans-serif",
+] as const;
+
+function firstFontFamily(value: string | undefined) {
+  return value?.split(",")[0]?.trim().replace(/^['"]|['"]$/g, "") || "";
+}
+
+function FontPickerField({ selection, onApplyStyle, onResetStyle }: { selection: SelectedElement; onApplyStyle: (property: string, value: string) => void; onResetStyle: (property: string) => void }) {
+  const [fontFamilies, setFontFamilies] = useState<string[]>([...defaultFontFamilies]);
+  const currentValue = selection.styles.fontFamily || "";
+  const currentFamily = firstFontFamily(currentValue);
+
+  useEffect(() => {
+    const desktop = window.formiaDesktop;
+    if (!desktop) return;
+
+    let active = true;
+    void desktop.getInstalledFonts().then((installedFonts) => {
+      if (active && installedFonts.length > 0) setFontFamilies(installedFonts);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const availableFonts = currentFamily && !fontFamilies.includes(currentFamily) ? [currentFamily, ...fontFamilies] : fontFamilies;
+
+  return (
+    <DropdownMenu>
+      <div className="group relative grid h-7 min-w-0 grid-cols-[minmax(0,1fr)_1.5rem] items-center rounded-[5px] border border-border bg-background px-2 transition-colors hover:bg-muted/30 focus-within:bg-muted/25 focus-within:ring-1 focus-within:ring-foreground/5">
+        <Input id="typography-font-family" value={currentValue} aria-label="Edit font family" className="h-4 min-w-0 w-full overflow-hidden text-ellipsis whitespace-nowrap rounded-none border-0 bg-transparent p-0 pr-1 text-[14px] leading-4 font-normal shadow-none focus-visible:ring-0" onChange={(event) => onApplyStyle("fontFamily", event.currentTarget.value)} />
+        <Hint content="Choose installed font">
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="ghost" size="icon-xs" className="absolute right-0.5 top-1/2 size-5 -translate-y-1/2 rounded p-0 text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/10" aria-label="Choose installed font">
+              <CaretDownIcon className="size-3" />
+            </Button>
+          </DropdownMenuTrigger>
+        </Hint>
+        <Hint content="Reset font family">
+          <Button type="button" variant="ghost" size="icon-xs" className="absolute right-6 top-1/2 size-4 -translate-y-1/2 rounded bg-background p-0 text-muted-foreground opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100" onClick={() => onResetStyle("fontFamily")} aria-label="Reset font family">
+            <ArrowCounterClockwiseIcon className="size-3.5" />
+          </Button>
+        </Hint>
+      </div>
+      <DropdownMenuContent align="start" sideOffset={4} className="max-h-72 min-w-[16rem] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
+        <DropdownMenuLabel className="px-2 py-1 text-[11px]">Installed fonts</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={availableFonts.includes(currentFamily) ? currentFamily : ""} onValueChange={(font) => onApplyStyle("fontFamily", font)}>
+          {availableFonts.map((font) => (
+            <DropdownMenuRadioItem key={font} value={font} className="rounded-[3px] px-2 py-1 text-[14px]" style={{ fontFamily: `"${font}"` }}>
+              {font}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function parseTypographyMetric(value: string | undefined, fallback: string, units: readonly { value: string; label: string }[], allowNormal: boolean) {
+  const normalized = value?.trim() || fallback;
+  if (allowNormal && normalized.toLowerCase() === "normal") return { inputValue: "normal", unit: "normal" as TypographyMetricUnit };
+
+  const numeric = normalized.match(/^(-?(?:\d+(?:\.\d*)?|\.\d+))([a-z%]*)$/i);
+  if (!numeric) return { inputValue: normalized, unit: "px" as TypographyMetricUnit };
+
+  const unit = numeric[2] === "" && units.some((option) => option.value === "unitless")
+    ? "unitless"
+    : units.some((option) => option.value === numeric[2]) ? numeric[2] : "px";
+  return { inputValue: numeric[1], unit };
+}
+
+function TypographyMetricField({
+  icon,
+  name,
+  value,
+  fallback,
+  units,
+  allowNormal = false,
+  onCommit,
+  onReset,
+}: {
+  icon: IconSvgElement;
+  name: string;
+  value: string | undefined;
+  fallback: string;
+  units: readonly { value: string; label: string }[];
+  allowNormal?: boolean;
+  onCommit: (value: string) => void;
+  onReset: () => void;
+}) {
+  const parsed = parseTypographyMetric(value, fallback, units, allowNormal);
+  const selectedUnitLabel = parsed.unit === "normal"
+    ? "Normal"
+    : units.find((option) => option.value === parsed.unit)?.label || "Custom";
+
+  function commitInput(inputValue: string) {
+    const nextValue = inputValue.trim();
+    if (allowNormal && nextValue.toLowerCase() === "normal") {
+      onCommit("normal");
+      return;
+    }
+
+    const unit = parsed.unit === "normal" ? (units[0]?.value || "px") : parsed.unit;
+    onCommit(`${nextValue || fallback}${unit === "unitless" ? "" : unit}`);
+  }
+
+  function chooseUnit(unit: string) {
+    if (allowNormal && unit === "normal") {
+      onCommit("normal");
+      return;
+    }
+
+    const inputValue = parsed.unit === "normal" ? fallback : parsed.inputValue;
+    onCommit(`${inputValue}${unit === "unitless" ? "" : unit}`);
+  }
+
+  return (
+    <div className="group relative grid h-7 min-w-0 grid-cols-[1.75rem_minmax(0,1fr)] items-center rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:bg-muted/25 focus-within:ring-1 focus-within:ring-foreground/5">
+      <Hint content={name}><label htmlFor={`typography-${name}`} className="grid size-3.5 place-items-center text-muted-foreground [&>svg]:block"><HugeiconsIcon icon={icon} size={15} strokeWidth={1.8} /></label></Hint>
       <Input
-        value={value}
+        id={`typography-${name}`}
+        value={parsed.inputValue}
         aria-label={`Edit ${name}`}
-        className="h-6 min-w-0 rounded-[5px] border-transparent bg-muted/70 px-2 text-[11px] shadow-none hover:bg-muted focus-visible:border-ring"
-        onChange={(event) => onCommit(event.currentTarget.value)}
+        className="h-4 min-w-0 w-full overflow-hidden text-ellipsis whitespace-nowrap appearance-none rounded-none border-0 bg-transparent p-0 pr-8 text-[14px] leading-4 font-normal tabular-nums shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[14px]"
+        onChange={(event) => commitInput(event.currentTarget.value)}
       />
       <Hint content={`Reset ${name}`}>
-        <Button type="button" variant="ghost" size="icon-xs" className="size-6 rounded-[5px] text-muted-foreground" onClick={onReset} aria-label={`Reset ${name}`}>
-          <ArrowCounterClockwiseIcon />
+        <Button type="button" variant="ghost" size="icon-xs" className="absolute right-5 top-1/2 size-4 -translate-y-1/2 rounded bg-background p-0 text-muted-foreground opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100" onClick={onReset} aria-label={`Reset ${name}`}>
+          <ArrowCounterClockwiseIcon className="size-3.5" />
         </Button>
       </Hint>
+      <DropdownMenu>
+        <Hint content={`Unit: ${selectedUnitLabel}`}>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="ghost" size="icon-xs" className="absolute right-0.5 top-1/2 size-4 -translate-y-1/2 rounded p-0 text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/10" aria-label={`Choose ${name} unit`}>
+              <CaretDownIcon className="size-3" />
+            </Button>
+          </DropdownMenuTrigger>
+        </Hint>
+        <DropdownMenuContent align="end" sideOffset={4} className="w-40 rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
+          <DropdownMenuLabel className="px-2 py-1 text-[11px]">Units</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={parsed.unit} onValueChange={chooseUnit}>
+            {units.map((option) => <DropdownMenuRadioItem key={option.value || "unitless"} value={option.value} className="rounded-[3px] px-2 py-1 text-[12px]">{option.label}</DropdownMenuRadioItem>)}
+            {allowNormal ? <DropdownMenuRadioItem value="normal" className="rounded-[3px] px-2 py-1 text-[12px]">Normal</DropdownMenuRadioItem> : null}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
 
-function EditablePropertyGroup({
-  title,
-  values,
-  onCommit,
-  onReset,
-}: {
-  title: string;
-  values: Record<string, string>;
-  onCommit: (name: string, value: string) => void;
-  onReset: (name: string) => void;
-}) {
-  const entries = Object.entries(values);
-  if (entries.length === 0) return null;
+const fontWeightOptions = [
+  { value: "100", label: "100 Thin" },
+  { value: "200", label: "200 Extra light" },
+  { value: "300", label: "300 Light" },
+  { value: "400", label: "400 Regular" },
+  { value: "500", label: "500 Medium" },
+  { value: "600", label: "600 Semi bold" },
+  { value: "700", label: "700 Bold" },
+  { value: "800", label: "800 Extra bold" },
+  { value: "900", label: "900 Black" },
+  { value: "normal", label: "Normal" },
+  { value: "bold", label: "Bold" },
+] as const;
+
+type TypographyIconOption = { value: string; label: string; icon: IconSvgElement };
+
+const textAlignOptions: readonly TypographyIconOption[] = [
+  { value: "left", label: "Left", icon: TextAlignLeftIcon },
+  { value: "center", label: "Center", icon: TextAlignCenterIcon },
+  { value: "right", label: "Right", icon: TextAlignRightIcon },
+  { value: "justify", label: "Justify", icon: TextAlignJustifyCenterIcon },
+  { value: "start", label: "Start", icon: TextAlignLeft01Icon },
+  { value: "end", label: "End", icon: TextAlignRight01Icon },
+];
+
+const textTransformOptions: readonly TypographyIconOption[] = [
+  { value: "none", label: "None", icon: MinusSignIcon },
+  { value: "uppercase", label: "Uppercase", icon: CaseUpperIcon },
+  { value: "lowercase", label: "Lowercase", icon: CaseLowerIcon },
+  { value: "capitalize", label: "Capitalize", icon: CaseSensitiveIcon },
+];
+
+const textDecorationOptions: readonly TypographyIconOption[] = [
+  { value: "none", label: "None", icon: MinusSignIcon },
+  { value: "underline", label: "Underline", icon: TextUnderlineIcon },
+  { value: "line-through", label: "Strike through", icon: TextStrikethroughIcon },
+  { value: "overline", label: "Overline", icon: XLineTopIcon },
+];
+
+function TypographyWeightField({ value, onCommit }: { value: string | undefined; onCommit: (value: string) => void }) {
+  const currentValue = value || "400";
+  const selectedWeight = fontWeightOptions.some((option) => option.value === currentValue) ? currentValue : "";
 
   return (
-    <section className="border-b border-border px-3.5 py-3.5">
-      <h3 className="mb-2.5 text-[11px] font-semibold text-foreground">{title}</h3>
-      <div className="space-y-1.5">
-        {entries.map(([name, value]) => (
-          <EditableProperty key={name} name={name} value={value} onCommit={(nextValue) => onCommit(name, nextValue)} onReset={() => onReset(name)} />
+    <DropdownMenu>
+      <div className="group relative grid h-7 min-w-0 grid-cols-[1.25rem_minmax(0,1fr)_1.5rem] items-center gap-1 rounded-[5px] border border-border bg-background px-2 transition-colors hover:bg-muted/30 focus-within:bg-muted/25 focus-within:ring-1 focus-within:ring-foreground/5">
+        <Hint content="font-weight"><label htmlFor="typography-font-weight" className="grid size-3.5 place-items-center text-muted-foreground"><HugeiconsIcon icon={TextVariableFrontIcon} size={15} strokeWidth={1.8} /></label></Hint>
+        <Input id="typography-font-weight" value={currentValue} aria-label="Edit font weight" className="h-4 min-w-0 w-full overflow-hidden text-ellipsis whitespace-nowrap appearance-none rounded-none border-0 bg-transparent p-0 text-[14px] leading-4 font-normal tabular-nums shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[14px]" onChange={(event) => onCommit(event.currentTarget.value)} />
+        <Hint content="Choose font weight">
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="ghost" size="icon-xs" className="absolute right-0.5 top-1/2 size-5 -translate-y-1/2 rounded p-0 text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/10" aria-label="Choose font weight">
+              <CaretDownIcon className="size-3" />
+            </Button>
+          </DropdownMenuTrigger>
+        </Hint>
+      </div>
+      <DropdownMenuContent align="end" sideOffset={4} className="w-40 rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
+        <DropdownMenuLabel className="px-2 py-1 text-[11px]">Font weight</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={selectedWeight} onValueChange={onCommit}>
+          {fontWeightOptions.map((option) => <DropdownMenuRadioItem key={option.value} value={option.value} className="rounded-[3px] px-2 py-1 text-[12px]">{option.label}</DropdownMenuRadioItem>)}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function TypographyIconSegmentedField({ label, name, value, options, onChange }: { label: string; name: string; value: string | undefined; options: readonly TypographyIconOption[]; onChange: (value: string) => void }) {
+  return (
+    <div className="space-y-1">
+      <LayoutLabel>{label}</LayoutLabel>
+      <div className={layoutControlSurface} style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }} role="group" aria-label={name}>
+        {options.map((option) => (
+          <Hint key={option.value} content={option.label}>
+            <Button type="button" variant="ghost" size="icon-xs" className={layoutControlButton} onClick={() => onChange(option.value)} aria-label={option.label} aria-pressed={value === option.value}>
+              <HugeiconsIcon icon={option.icon} size={15} strokeWidth={1.8} />
+            </Button>
+          </Hint>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function TypographyGroup({ selection, onApplyStyle, onResetStyle }: { selection: SelectedElement; onApplyStyle: (property: string, value: string) => void; onResetStyle: (property: string) => void }) {
+  return (
+    <section className={inspectorSectionClass}>
+      <h3 className={inspectorTitleClass}>Typography</h3>
+      <div className="space-y-1">
+        <FontPickerField selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
+
+        <div className="grid grid-cols-2 gap-1">
+          <TypographyMetricField icon={AArrowUpIcon} name="font-size" value={selection.styles.fontSize} fallback="16" units={typographyUnits} onCommit={(value) => onApplyStyle("fontSize", value)} onReset={() => onResetStyle("fontSize")} />
+          <TypographyWeightField value={selection.styles.fontWeight} onCommit={(value) => onApplyStyle("fontWeight", value)} />
+        </div>
+
+        <div className="grid grid-cols-2 gap-1">
+          <TypographyMetricField icon={ParagraphSpacingIcon} name="line-height" value={selection.styles.lineHeight} fallback="1.2" units={lineHeightUnits} allowNormal onCommit={(value) => onApplyStyle("lineHeight", value)} onReset={() => onResetStyle("lineHeight")} />
+          <TypographyMetricField icon={FitToScreenIcon} name="letter-spacing" value={selection.styles.letterSpacing} fallback="0" units={typographyUnits} allowNormal onCommit={(value) => onApplyStyle("letterSpacing", value)} onReset={() => onResetStyle("letterSpacing")} />
+        </div>
+
+        <TypographyIconSegmentedField label="Align" name="Text alignment" value={selection.styles.textAlign} options={textAlignOptions} onChange={(value) => onApplyStyle("textAlign", value)} />
+
+        <div className="grid grid-cols-2 gap-1">
+          <TypographyIconSegmentedField label="Transform" name="Text transform" value={selection.styles.textTransform} options={textTransformOptions} onChange={(value) => onApplyStyle("textTransform", value)} />
+          <TypographyIconSegmentedField label="Decoration" name="Text decoration" value={selection.styles.textDecorationLine} options={textDecorationOptions} onChange={(value) => onApplyStyle("textDecorationLine", value)} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function colorPickerValue(value: string | undefined) {
+  const normalized = value?.trim().toLowerCase() || "";
+  const hex = normalized.match(/^#([0-9a-f]{3,8})$/i)?.[1];
+  if (hex) {
+    if (hex.length === 3) return `#${hex.split("").map((digit) => `${digit}${digit}`).join("")}`;
+    if (hex.length >= 6) return `#${hex.slice(0, 6)}`;
+  }
+
+  const rgb = normalized.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*[\d.]+)?\s*\)$/i);
+  if (rgb) {
+    return `#${rgb.slice(1, 4).map((channel) => Number(channel).toString(16).padStart(2, "0")).join("")}`;
+  }
+
+  return "#000000";
+}
+
+function ColorField({ label, name, property, value, onApplyStyle, onResetStyle }: { label: string; name: string; property: string; value: string | undefined; onApplyStyle: (property: string, value: string) => void; onResetStyle: (property: string) => void }) {
+  return (
+    <div className="space-y-1">
+      <Hint content={`Edit ${name} color`}>
+        <label htmlFor={`color-${property}`} className={inspectorLabelClass}>{label}</label>
+      </Hint>
+      <div className="group relative flex h-7 min-w-0 items-center gap-1 rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5">
+        <ColorPicker value={colorPickerValue(value)} onChange={(next) => onApplyStyle(property, next)} ariaLabel={`Choose ${name} color`} />
+        <Input
+          id={`color-${property}`}
+          value={value || ""}
+          aria-label={`Edit ${name} color value`}
+          placeholder="transparent"
+          className="h-4 min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded-none border-0 bg-transparent p-0 pr-6 text-[12px] leading-4 font-normal shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[12px]"
+          onChange={(event) => onApplyStyle(property, event.currentTarget.value)}
+        />
+        <Hint content={`Reset ${name} color`}>
+          <Button type="button" variant="ghost" size="icon-xs" className="absolute right-1 top-1/2 size-4 -translate-y-1/2 rounded bg-background p-0 text-muted-foreground opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100" onClick={() => onResetStyle(property)} aria-label={`Reset ${name} color`}>
+            <ArrowCounterClockwiseIcon className="size-3.5" />
+          </Button>
+        </Hint>
+      </div>
+    </div>
+  );
+}
+
+function ColorGroup({ selection, onApplyStyle, onResetStyle }: { selection: SelectedElement; onApplyStyle: (property: string, value: string) => void; onResetStyle: (property: string) => void }) {
+  return (
+    <section className={inspectorSectionClass}>
+      <h3 className={inspectorTitleClass}>Color</h3>
+      <div className="space-y-1">
+        <ColorField label="Foreground" name="foreground" property="color" value={selection.styles.color} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
+        <ColorField label="Background" name="background" property="backgroundColor" value={selection.styles.backgroundColor} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
       </div>
     </section>
   );
@@ -167,6 +512,7 @@ function CompactLayoutField({
   onReset,
   suffix,
   wideLabel = false,
+  inlineLabel,
 }: {
   label: React.ReactNode;
   name: string;
@@ -175,17 +521,36 @@ function CompactLayoutField({
   onReset: () => void;
   suffix?: string;
   wideLabel?: boolean;
+  inlineLabel?: boolean;
 }) {
-  return (
-    <div className={`group relative grid h-7 min-w-0 items-center rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5 ${wideLabel ? "grid-cols-[1.75rem_minmax(0,1fr)_auto]" : "grid-cols-[0.875rem_minmax(0,1fr)_auto] gap-x-2"}`}>
-      <Hint content={name}><label htmlFor={`layout-${name}`} className={`${wideLabel ? "text-left" : "grid size-3.5 place-items-center"} text-[14px] leading-none font-normal text-muted-foreground [&>svg]:block`}>{label}</label></Hint>
-      <Input id={`layout-${name}`} value={value} aria-label={`Edit ${name}`} className="h-4 min-w-0 w-full overflow-hidden text-ellipsis whitespace-nowrap appearance-none rounded-none border-0 bg-transparent p-0 text-[14px] leading-4 font-normal tabular-nums shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[14px]" onChange={(event) => onCommit(event.currentTarget.value)} />
+  const isInline = inlineLabel ?? typeof label !== "string";
+  const controlContents = (
+    <>
+      <Input id={`layout-${name}`} value={value} aria-label={`Edit ${name}`} className="h-4 min-w-0 w-full overflow-hidden text-ellipsis whitespace-nowrap appearance-none rounded-none border-0 bg-transparent p-0 pr-7 text-[14px] leading-4 font-normal tabular-nums shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[14px]" onChange={(event) => onCommit(event.currentTarget.value)} />
       {suffix ? <span className="-ml-1 text-[14px] leading-4 text-muted-foreground">{suffix}</span> : null}
       <Hint content={`Reset ${name}`}>
         <Button type="button" variant="ghost" size="icon-xs" className={`absolute top-1/2 size-4 -translate-y-1/2 rounded bg-background p-0 text-muted-foreground opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100 ${suffix ? "right-5" : "right-1"}`} onClick={onReset} aria-label={`Reset ${name}`}>
           <ArrowCounterClockwiseIcon className="size-3.5" />
         </Button>
       </Hint>
+    </>
+  );
+
+  if (!isInline) {
+    return (
+      <div className="space-y-1">
+        <Hint content={name}><label htmlFor={`layout-${name}`} className={inspectorLabelClass}>{label}</label></Hint>
+        <div className="group relative flex h-7 min-w-0 items-center rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5">
+          {controlContents}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`group relative grid h-7 min-w-0 items-center rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5 ${wideLabel ? "grid-cols-[1.75rem_minmax(0,1fr)_auto]" : "grid-cols-[0.875rem_minmax(0,1fr)_auto] gap-x-2"}`}>
+      <Hint content={name}><label htmlFor={`layout-${name}`} className={`${wideLabel ? "text-left" : "grid size-3.5 place-items-center"} text-[14px] leading-none font-normal text-muted-foreground [&>svg]:block`}>{label}</label></Hint>
+      {controlContents}
     </div>
   );
 }
@@ -244,6 +609,7 @@ function SizingLayoutField({
   unitOptions = sizingUnits,
   keywordOptions = sizingKeywords,
   compactLabel = false,
+  inlineLabel,
 }: {
   label: React.ReactNode;
   name: string;
@@ -254,10 +620,12 @@ function SizingLayoutField({
   unitOptions?: readonly SizingOption[];
   keywordOptions?: readonly SizingOption[];
   compactLabel?: boolean;
+  inlineLabel?: boolean;
 }) {
   const parsed = parseSizingValue(value, fallback, unitOptions, keywordOptions);
   const selectedKeyword = keywordOptions.find((option) => option.value === parsed.unit);
   const selectedUnitLabel = selectedKeyword?.label || unitOptions.find((option) => option.value === parsed.unit)?.label || "Custom";
+  const isInline = inlineLabel ?? (compactLabel || typeof label !== "string");
 
   function chooseUnit(unit: string) {
     const nextUnit = unit as SizingUnit;
@@ -266,22 +634,22 @@ function SizingLayoutField({
     onCommit(nextInputValue, nextUnit);
   }
 
-  return (
-    <div className={`group relative grid h-7 min-w-0 items-center rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5 ${compactLabel ? "grid-cols-[0.875rem_minmax(0,1fr)] gap-x-2" : "grid-cols-[1.75rem_minmax(0,1fr)]"}`}>
-      <Hint content={name}><label htmlFor={`layout-${name}`} className={`${compactLabel ? "grid size-3.5 place-items-center [&>svg]:block" : ""} text-[14px] leading-4 font-normal text-muted-foreground`}>{label}</label></Hint>
-      <Input
-        id={`layout-${name}`}
-        value={parsed.inputValue}
-        aria-label={`Edit ${name}`}
-        className="h-4 min-w-0 w-full overflow-hidden text-ellipsis whitespace-nowrap appearance-none rounded-none border-0 bg-transparent p-0 pr-8 text-[14px] leading-4 font-normal tabular-nums shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[14px]"
-        onChange={(event) => onCommit(event.currentTarget.value, parsed.unit)}
-      />
-      <Hint content={`Reset ${name}`}>
-        <Button type="button" variant="ghost" size="icon-xs" className="absolute right-5 top-1/2 size-4 -translate-y-1/2 rounded bg-background p-0 text-muted-foreground opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100" onClick={onReset} aria-label={`Reset ${name}`}>
-          <ArrowCounterClockwiseIcon className="size-3.5" />
-        </Button>
-      </Hint>
-      <DropdownMenu>
+  const field = (
+    <DropdownMenu>
+      <div className={`group relative min-w-0 rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5 ${isInline ? "grid h-7 grid-cols-[1.75rem_minmax(0,1fr)] items-center" : "flex h-7 items-center"}`}>
+        {isInline ? <Hint content={name}><label htmlFor={`layout-${name}`} className={`${compactLabel ? "grid size-3.5 place-items-center [&>svg]:block" : ""} text-[14px] leading-4 font-normal text-muted-foreground`}>{label}</label></Hint> : null}
+        <Input
+          id={`layout-${name}`}
+          value={parsed.inputValue}
+          aria-label={`Edit ${name}`}
+          className="h-4 min-w-0 w-full overflow-hidden text-ellipsis whitespace-nowrap appearance-none rounded-none border-0 bg-transparent p-0 pr-8 text-[14px] leading-4 font-normal tabular-nums shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[14px]"
+          onChange={(event) => onCommit(event.currentTarget.value, parsed.unit)}
+        />
+        <Hint content={`Reset ${name}`}>
+          <Button type="button" variant="ghost" size="icon-xs" className="absolute right-5 top-1/2 size-4 -translate-y-1/2 rounded bg-background p-0 text-muted-foreground opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100" onClick={onReset} aria-label={`Reset ${name}`}>
+            <ArrowCounterClockwiseIcon className="size-3.5" />
+          </Button>
+        </Hint>
         <Hint content={`Unit: ${selectedUnitLabel}`}>
           <DropdownMenuTrigger asChild>
             <Button type="button" variant="ghost" size="icon-xs" className="absolute right-0.5 top-1/2 size-4 -translate-y-1/2 rounded p-0 text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/10" aria-label={`Choose ${name} unit`}>
@@ -289,24 +657,35 @@ function SizingLayoutField({
             </Button>
           </DropdownMenuTrigger>
         </Hint>
-        <DropdownMenuContent align="end" sideOffset={4} className="w-40 rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
-          <DropdownMenuLabel className="px-2 py-1 text-[11px]">Units</DropdownMenuLabel>
-          <DropdownMenuRadioGroup value={parsed.unit} onValueChange={chooseUnit}>
-            {unitOptions.map((option) => <DropdownMenuRadioItem key={option.value} value={option.value} className="rounded-[3px] px-2 py-1 text-[12px]">{option.label}</DropdownMenuRadioItem>)}
-          </DropdownMenuRadioGroup>
-          {keywordOptions.length > 0 ? (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel className="px-2 py-1 text-[11px]">Sizing</DropdownMenuLabel>
-              <DropdownMenuRadioGroup value={parsed.unit} onValueChange={chooseUnit}>
-                {keywordOptions.map((option) => <DropdownMenuRadioItem key={option.value} value={option.value} className="rounded-[3px] px-2 py-1 text-[12px]">{option.label}</DropdownMenuRadioItem>)}
-              </DropdownMenuRadioGroup>
-            </>
-          ) : null}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+      </div>
+      <DropdownMenuContent align="end" sideOffset={4} className="w-40 rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
+        <DropdownMenuLabel className="px-2 py-1 text-[11px]">Units</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={parsed.unit} onValueChange={chooseUnit}>
+          {unitOptions.map((option) => <DropdownMenuRadioItem key={option.value} value={option.value} className="rounded-[3px] px-2 py-1 text-[12px]">{option.label}</DropdownMenuRadioItem>)}
+        </DropdownMenuRadioGroup>
+        {keywordOptions.length > 0 ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="px-2 py-1 text-[11px]">Sizing</DropdownMenuLabel>
+            <DropdownMenuRadioGroup value={parsed.unit} onValueChange={chooseUnit}>
+              {keywordOptions.map((option) => <DropdownMenuRadioItem key={option.value} value={option.value} className="rounded-[3px] px-2 py-1 text-[12px]">{option.label}</DropdownMenuRadioItem>)}
+            </DropdownMenuRadioGroup>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
+
+  if (!isInline) {
+    return (
+      <div className="space-y-1">
+        <Hint content={name}><label htmlFor={`layout-${name}`} className={inspectorLabelClass}>{label}</label></Hint>
+        {field}
+      </div>
+    );
+  }
+
+  return field;
 }
 
 function LayoutSelectField({
@@ -315,20 +694,18 @@ function LayoutSelectField({
   value,
   options,
   onChange,
-  stacked = false,
 }: {
   label: string;
   name: string;
   value: string | undefined;
   options: readonly { value: string; label: string }[];
   onChange: (value: string) => void;
-  stacked?: boolean;
 }) {
   return (
-    <div className={stacked ? "space-y-1 text-[11px]" : "grid grid-cols-[1.75rem_minmax(0,1fr)] items-center gap-2 text-[11px]"}>
-      <Hint content={name}><label className={stacked ? "block text-[12px] leading-4 text-muted-foreground" : "truncate text-muted-foreground"}>{label}</label></Hint>
+    <div className="space-y-1">
+      <Hint content={name}><label className={inspectorLabelClass}>{label}</label></Hint>
       <Select value={value || options[0]?.value} onValueChange={onChange}>
-        <SelectTrigger aria-label={`Edit ${name}`} className="h-7 w-full rounded-[5px] border-border bg-muted/35 px-2 text-[14px] leading-4 font-normal text-foreground shadow-none hover:bg-muted/50 focus-visible:ring-1 focus-visible:ring-foreground/5">
+        <SelectTrigger aria-label={`Edit ${name}`} className={`${inspectorFieldClass} h-7 w-full px-2 font-normal hover:bg-muted/30 focus-visible:ring-1 focus-visible:ring-foreground/5`}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent position="popper" className="rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
@@ -376,7 +753,92 @@ function CompactLayoutSelectField({
 }
 
 function LayoutLabel({ children }: { children: React.ReactNode }) {
-  return <p className="text-[12px] leading-4 font-normal text-muted-foreground">{children}</p>;
+  return <p className={inspectorLabelClass}>{children}</p>;
+}
+
+type SpacingProperty = "marginTop" | "marginRight" | "marginBottom" | "marginLeft" | "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft";
+
+const spacingValuePattern = /^(-?(?:\d+(?:\.\d*)?|\.\d+))([a-z%]*)$/i;
+
+function spacingInputValue(value: string | undefined) {
+  const normalized = value?.trim() || "0px";
+  return normalized.match(spacingValuePattern)?.[1] || normalized;
+}
+
+function spacingCssValue(inputValue: string, currentValue: string | undefined) {
+  const value = inputValue.trim();
+  if (!value) return "0px";
+  if (spacingValuePattern.test(value) || /^(?:auto|inherit|initial|unset|revert)$/i.test(value) || /^[a-z-]+\(.*\)$/i.test(value)) return value;
+  const currentUnit = currentValue?.trim().match(spacingValuePattern)?.[2] || "px";
+  return `${value}${currentUnit}`;
+}
+
+function SpacingField({
+  property,
+  label,
+  value,
+  className,
+  onCommit,
+}: {
+  property: SpacingProperty;
+  label: string;
+  value: string | undefined;
+  className: string;
+  onCommit: (property: SpacingProperty, value: string, currentValue: string | undefined) => void;
+}) {
+  return (
+    <div className={`group flex min-w-0 items-center justify-center ${className}`}>
+      <Input
+        id={`spacing-${property}`}
+        value={spacingInputValue(value)}
+        aria-label={`${label} ${property}`}
+        className="h-5 w-8 rounded-[3px] border-transparent bg-transparent px-0.5 text-center text-[11px] font-normal tabular-nums shadow-none hover:border-border hover:bg-background focus-visible:border-border focus-visible:bg-background focus-visible:ring-1 focus-visible:ring-foreground/5"
+        onChange={(event) => onCommit(property, event.currentTarget.value, value)}
+      />
+    </div>
+  );
+}
+
+function SpacingGroup({
+  selection,
+  onApplyStyle,
+}: {
+  selection: SelectedElement;
+  onApplyStyle: (property: string, value: string) => void;
+}) {
+  function commitSpacing(property: SpacingProperty, value: string, currentValue: string | undefined) {
+    onApplyStyle(property, spacingCssValue(value, currentValue));
+  }
+
+  return (
+    <div className="space-y-1">
+      <LayoutLabel>Spacing</LayoutLabel>
+      <div className="relative h-28 min-w-0 overflow-hidden rounded-[5px] border border-border bg-muted/25">
+        <span className="pointer-events-none absolute left-1 top-0.5 z-20 text-[8px] uppercase leading-3 text-muted-foreground">Margin</span>
+        <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <polygon points="0,0 100,0 82,24 18,24" fill="var(--muted)" fillOpacity="0.72" stroke="var(--border)" strokeWidth="0.7" vectorEffect="non-scaling-stroke" />
+          <polygon points="0,0 18,24 18,76 0,100" fill="var(--muted)" fillOpacity="0.72" stroke="var(--border)" strokeWidth="0.7" vectorEffect="non-scaling-stroke" />
+          <polygon points="100,0 100,100 82,76 82,24" fill="var(--muted)" fillOpacity="0.72" stroke="var(--border)" strokeWidth="0.7" vectorEffect="non-scaling-stroke" />
+          <polygon points="18,76 82,76 100,100 0,100" fill="var(--muted)" fillOpacity="0.72" stroke="var(--border)" strokeWidth="0.7" vectorEffect="non-scaling-stroke" />
+          <rect x="18" y="24" width="64" height="52" fill="var(--background)" fillOpacity="0.62" stroke="var(--border)" strokeWidth="0.7" vectorEffect="non-scaling-stroke" />
+          <polygon points="18,24 82,24 65.5,46 34.5,46" fill="var(--muted)" fillOpacity="0.45" stroke="var(--border)" strokeWidth="0.7" vectorEffect="non-scaling-stroke" />
+          <polygon points="18,24 34.5,46 34.5,54 18,76" fill="var(--muted)" fillOpacity="0.45" stroke="var(--border)" strokeWidth="0.7" vectorEffect="non-scaling-stroke" />
+          <polygon points="82,24 82,76 65.5,54 65.5,46" fill="var(--muted)" fillOpacity="0.45" stroke="var(--border)" strokeWidth="0.7" vectorEffect="non-scaling-stroke" />
+          <polygon points="34.5,54 65.5,54 82,76 18,76" fill="var(--muted)" fillOpacity="0.45" stroke="var(--border)" strokeWidth="0.7" vectorEffect="non-scaling-stroke" />
+          <rect x="34.5" y="46" width="31" height="8" rx="1.5" fill="var(--background)" stroke="var(--border)" strokeWidth="0.7" vectorEffect="non-scaling-stroke" />
+        </svg>
+        <SpacingField property="marginTop" label="Margin top" value={selection.styles.marginTop} className="absolute inset-x-0 top-0 z-10 h-6" onCommit={commitSpacing} />
+        <SpacingField property="marginLeft" label="Margin left" value={selection.styles.marginLeft} className="absolute inset-y-6 left-0 z-10 w-[18%]" onCommit={commitSpacing} />
+        <SpacingField property="marginRight" label="Margin right" value={selection.styles.marginRight} className="absolute inset-y-6 right-0 z-10 w-[18%]" onCommit={commitSpacing} />
+        <SpacingField property="marginBottom" label="Margin bottom" value={selection.styles.marginBottom} className="absolute inset-x-0 bottom-0 z-10 h-6" onCommit={commitSpacing} />
+        <span className="pointer-events-none absolute left-[calc(18%+4px)] top-[calc(24%+2px)] z-20 text-[8px] uppercase leading-3 text-muted-foreground">Padding</span>
+        <SpacingField property="paddingTop" label="Padding top" value={selection.styles.paddingTop} className="absolute left-[18%] right-[18%] top-[24%] z-10 h-6" onCommit={commitSpacing} />
+        <SpacingField property="paddingLeft" label="Padding left" value={selection.styles.paddingLeft} className="absolute inset-y-[46%] left-[18%] z-10 w-[16.5%]" onCommit={commitSpacing} />
+        <SpacingField property="paddingRight" label="Padding right" value={selection.styles.paddingRight} className="absolute inset-y-[46%] right-[18%] z-10 w-[16.5%]" onCommit={commitSpacing} />
+        <SpacingField property="paddingBottom" label="Padding bottom" value={selection.styles.paddingBottom} className="absolute left-[18%] right-[18%] bottom-[24%] z-10 h-6" onCommit={commitSpacing} />
+      </div>
+    </div>
+  );
 }
 
 const distributionOptions = [
@@ -386,6 +848,13 @@ const distributionOptions = [
   { value: "space-between", label: "Space between" },
   { value: "space-around", label: "Space around" },
   { value: "space-evenly", label: "Space evenly" },
+] as const;
+
+const overflowOptions = [
+  { value: "visible", label: "Visible" },
+  { value: "hidden", label: "Hidden" },
+  { value: "auto", label: "Auto" },
+  { value: "scroll", label: "Scroll" },
 ] as const;
 
 function normalizeDistribution(value: string | undefined) {
@@ -526,13 +995,13 @@ function TransformRow({
     </div>
   ) : item.type === "scale" ? (
     <div className="grid min-w-0 grid-cols-2 gap-1">
-      <CompactLayoutField label="X" name={`scale-x-${item.id}`} value={item.scaleX} onCommit={(value) => onUpdate({ scaleX: value })} onReset={onReset} />
-      <CompactLayoutField label="Y" name={`scale-y-${item.id}`} value={item.scaleY} onCommit={(value) => onUpdate({ scaleY: value })} onReset={onReset} />
+      <CompactLayoutField label="X" name={`scale-x-${item.id}`} value={item.scaleX} inlineLabel onCommit={(value) => onUpdate({ scaleX: value })} onReset={onReset} />
+      <CompactLayoutField label="Y" name={`scale-y-${item.id}`} value={item.scaleY} inlineLabel onCommit={(value) => onUpdate({ scaleY: value })} onReset={onReset} />
     </div>
   ) : (
     <div className="grid min-w-0 grid-cols-2 gap-1">
-      <CompactLayoutField label="X" name={`skew-x-${item.id}`} value={item.skewX} onCommit={(value) => onUpdate({ skewX: value })} onReset={onReset} />
-      <CompactLayoutField label="Y" name={`skew-y-${item.id}`} value={item.skewY} onCommit={(value) => onUpdate({ skewY: value })} onReset={onReset} />
+      <CompactLayoutField label="X" name={`skew-x-${item.id}`} value={item.skewX} inlineLabel onCommit={(value) => onUpdate({ skewX: value })} onReset={onReset} />
+      <CompactLayoutField label="Y" name={`skew-y-${item.id}`} value={item.skewY} inlineLabel onCommit={(value) => onUpdate({ skewY: value })} onReset={onReset} />
     </div>
   );
 
@@ -661,16 +1130,16 @@ function LayoutGroup({
   }
 
   return (
-    <section className="border-b border-border px-3 py-2.5">
+    <section className={inspectorSectionClass}>
       <div className="mb-2">
-        <h3 className="text-[14px] leading-4 font-medium text-foreground">Layout</h3>
+        <h3 className={inspectorHeadingClass}>Layout</h3>
       </div>
       <div className="space-y-2">
         <div className="space-y-1">
           <LayoutLabel>Position</LayoutLabel>
           <div className="grid grid-cols-2 gap-1">
-            <CompactLayoutField label="X" name="x" value={`${selection.dimensions.x}`} onCommit={(value) => onApplyStyle("x", value)} onReset={() => onResetStyle("x")} />
-            <CompactLayoutField label="Y" name="y" value={`${selection.dimensions.y}`} onCommit={(value) => onApplyStyle("y", value)} onReset={() => onResetStyle("y")} />
+            <CompactLayoutField label="X" name="x" value={`${selection.dimensions.x}`} inlineLabel onCommit={(value) => onApplyStyle("x", value)} onReset={() => onResetStyle("x")} />
+            <CompactLayoutField label="Y" name="y" value={`${selection.dimensions.y}`} inlineLabel onCommit={(value) => onApplyStyle("y", value)} onReset={() => onResetStyle("y")} />
           </div>
         </div>
 
@@ -684,14 +1153,16 @@ function LayoutGroup({
             </Hint>
           </div>
           <div className="grid grid-cols-2 gap-1 items-center">
-            <SizingLayoutField label="W" name="width" value={selection.styles.width} fallback={selection.dimensions.width} onCommit={(value, unit) => commitSizing("width", value, unit)} onReset={() => onResetStyle("width")} />
-            <SizingLayoutField label="H" name="height" value={selection.styles.height} fallback={selection.dimensions.height} onCommit={(value, unit) => commitSizing("height", value, unit)} onReset={() => onResetStyle("height")} />
+            <SizingLayoutField label="W" name="width" value={selection.styles.width} fallback={selection.dimensions.width} inlineLabel onCommit={(value, unit) => commitSizing("width", value, unit)} onReset={() => onResetStyle("width")} />
+            <SizingLayoutField label="H" name="height" value={selection.styles.height} fallback={selection.dimensions.height} inlineLabel onCommit={(value, unit) => commitSizing("height", value, unit)} onReset={() => onResetStyle("height")} />
           </div>
           <div className="grid grid-cols-2 gap-1">
-            <SizingLayoutField label="MW" name="min-width" value={selection.styles.minWidth} fallback={0} onCommit={(value, unit) => commitSizing("minWidth", value, unit)} onReset={() => onResetStyle("minWidth")} />
-            <SizingLayoutField label="MH" name="min-height" value={selection.styles.minHeight} fallback={0} onCommit={(value, unit) => commitSizing("minHeight", value, unit)} onReset={() => onResetStyle("minHeight")} />
+            <SizingLayoutField label="MW" name="min-width" value={selection.styles.minWidth} fallback={0} inlineLabel onCommit={(value, unit) => commitSizing("minWidth", value, unit)} onReset={() => onResetStyle("minWidth")} />
+            <SizingLayoutField label="MH" name="min-height" value={selection.styles.minHeight} fallback={0} inlineLabel onCommit={(value, unit) => commitSizing("minHeight", value, unit)} onReset={() => onResetStyle("minHeight")} />
           </div>
         </div>
+
+        <SpacingGroup selection={selection} onApplyStyle={onApplyStyle} />
 
         <div className="space-y-1">
           <LayoutLabel>Alignment</LayoutLabel>
@@ -769,7 +1240,7 @@ function LayoutGroup({
                   <SizingLayoutField label="RG" name="row-gap" value={selection.styles.rowGap} fallback={0} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("rowGap", sizingCssValue(value, unit, 0, []))} onReset={() => onResetStyle("rowGap")} />
                   <SizingLayoutField label="CG" name="column-gap" value={selection.styles.columnGap} fallback={0} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("columnGap", sizingCssValue(value, unit, 0, []))} onReset={() => onResetStyle("columnGap")} />
                 </div>
-                <LayoutSelectField label="Auto placement" name="grid-auto-flow" value={selection.styles.gridAutoFlow} stacked options={[
+                <LayoutSelectField label="Auto placement" name="grid-auto-flow" value={selection.styles.gridAutoFlow} options={[
                   { value: "row", label: "Row" },
                   { value: "column", label: "Column" },
                   { value: "dense", label: "Dense" },
@@ -824,7 +1295,7 @@ function LayoutGroup({
             </div>
           ) : null}
           <Select value={positionMode} onValueChange={(value) => onApplyStyle("position", value)}>
-            <SelectTrigger aria-label="Position" className="h-7 w-full rounded-[5px] border-border bg-muted/35 px-2 text-[14px] leading-4 font-normal text-foreground shadow-none hover:bg-muted/50 focus-visible:ring-1 focus-visible:ring-foreground/5">
+            <SelectTrigger aria-label="Position" className={`${inspectorFieldClass} h-7 w-full px-2 font-normal hover:bg-muted/30 focus-visible:ring-1 focus-visible:ring-foreground/5`}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent position="popper" className="rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
@@ -852,6 +1323,7 @@ function LayoutGroup({
             </div>
           ) : null}
         </div>
+        <LayoutSelectField label="Overflow" name="overflow" value={selection.styles.overflow || "visible"} options={overflowOptions} onChange={(value) => onApplyStyle("overflow", value)} />
         <div className="space-y-1">
           <div className="flex h-4 items-center justify-between">
             <LayoutLabel>Transform</LayoutLabel>
@@ -1025,51 +1497,36 @@ function PropertiesSidebar({
             {selection.react && typeof selection.react.props === "object" && selection.react.props !== null ? (
               <PropertyGroup title="React props" values={selection.react.props as Record<string, unknown>} />
             ) : null}
+            {selection.textEditable ? <ContentGroup value={selection.text} onCommit={onApplyText} onReset={onResetText} /> : null}
             <LayoutGroup key={selection.selectionId ?? `${selection.tagName}-${selection.id ?? "selected"}`} selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
-            {selection.textEditable ? (
-              <EditablePropertyGroup
-                title="Text content"
-                values={{ text: selection.text }}
-                onCommit={(_name, value) => onApplyText(value)}
-                onReset={onResetText}
-              />
-            ) : null}
-            <EditablePropertyGroup
+            <TypographyGroup selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
+            <ColorGroup selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
+            <PropertyGroup
               title="Computed styles"
               values={{
-                color: selection.styles.color,
-                backgroundColor: selection.styles.backgroundColor,
-                fontFamily: selection.styles.fontFamily,
-                fontSize: selection.styles.fontSize,
-                fontWeight: selection.styles.fontWeight,
-                lineHeight: selection.styles.lineHeight,
-                margin: selection.styles.margin,
-                padding: selection.styles.padding,
                 border: selection.styles.border,
                 borderRadius: selection.styles.borderRadius,
                 overflow: selection.styles.overflow,
                 boxSizing: selection.styles.boxSizing,
                 zIndex: selection.styles.zIndex,
               }}
-              onCommit={onApplyStyle}
-              onReset={onResetStyle}
             />
             <PropertyGroup title="Attributes" values={selection.attributes} />
           </>
         ) : (
           <>
-            <section className="border-b border-border px-3.5 py-3.5">
-              <label htmlFor="canvas-background-color" className="text-[11px] font-semibold">Canvas background</label>
-              <div className="mt-2.5 flex items-center gap-2">
+            <section className={inspectorSectionClass}>
+              <label htmlFor="canvas-background-color" className={inspectorLabelClass}>Canvas background</label>
+              <div className="mt-1 grid grid-cols-[2.25rem_minmax(0,1fr)] items-center gap-1">
                 <input
                   id="canvas-background-color"
                   type="color"
                   value={canvasBackground}
                   onChange={(event) => onCanvasBackgroundChange(event.target.value)}
-                  className="h-7 w-10 cursor-pointer rounded-[5px] border border-border bg-muted/70 p-1"
+                  className="h-7 w-full cursor-pointer rounded-[5px] border border-border bg-background p-1"
                   aria-label="Canvas background color"
                 />
-                <span className="rounded-[5px] bg-muted/70 px-2 py-1 font-mono text-[11px] uppercase text-foreground">{canvasBackground}</span>
+                <span className={`${inspectorFieldClass} flex h-7 items-center font-mono text-[12px] uppercase`}>{canvasBackground}</span>
               </div>
             </section>
             <div className="flex min-h-64 flex-col items-center justify-center px-8 text-center">

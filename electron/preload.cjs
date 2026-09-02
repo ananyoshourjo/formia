@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("formiaDesktop", {
   stopProjectServer: () => ipcRenderer.invoke("formia:stop-project-server"),
   buildWithCodex: (payload) => ipcRenderer.invoke("formia:codex-build", payload),
   getCodexAvailability: () => ipcRenderer.invoke("formia:get-codex-availability"),
+  getInstalledFonts: () => ipcRenderer.invoke("formia:get-installed-fonts"),
   onCodexAvailability: (callback) => {
     const listener = (_event, status) => callback(status);
     ipcRenderer.on("formia:codex-availability", listener);
