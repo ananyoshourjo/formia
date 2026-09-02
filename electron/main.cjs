@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const http = require("node:http");
 const https = require("node:https");
 const net = require("node:net");
-const { spawn } = require("node:child_process");
+const { execFile, spawn } = require("node:child_process");
 const readline = require("node:readline");
 const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 
@@ -13,6 +13,42 @@ let activeProjectServer = null;
 let selectedProjectPath = null;
 let latestProjectServerStatus = { state: "stopped", message: "Project server stopped" };
 let latestCodexAvailability = { state: "checking", message: "Checking for Codex" };
+let installedFontsPromise = null;
+
+function getInstalledFonts() {
+  if (installedFontsPromise) return installedFontsPromise;
+
+  if (process.platform !== "win32") return Promise.resolve([]);
+
+  const command = [
+    "$registryPaths = @(",
+    "  'HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts',",
+    "  'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts',",
+    "  'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows NT\\CurrentVersion\\Fonts'",
+    ");",
+    "$fontNames = foreach ($registryPath in $registryPaths) {",
+    "  if (Test-Path $registryPath) {",
+    "    (Get-ItemProperty $registryPath).PSObject.Properties |",
+    "      Where-Object { $_.Name -notmatch '^PS' } |",
+    "      ForEach-Object { $_.Name -replace '\\s+\\((TrueType|OpenType|PostScript|Raster)\\)$', '' }",
+    "  }",
+    "};",
+    "$fontNames | Where-Object { $_ -and $_.Trim() } | Sort-Object -Unique",
+  ].join(" ");
+
+  installedFontsPromise = new Promise((resolve) => {
+    execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], { windowsHide: true, maxBuffer: 1024 * 1024 }, (_error, stdout) => {
+      const fonts = String(stdout || "")
+        .split(/\r?\n/)
+        .map((font) => font.trim())
+        .filter(Boolean)
+        .sort((left, right) => left.localeCompare(right));
+      resolve([...new Set(fonts)]);
+    });
+  });
+
+  return installedFontsPromise;
+}
 
 function isExternalUrl(url) {
   return url.startsWith("http://") || url.startsWith("https://");
@@ -698,6 +734,8 @@ ipcMain.handle("formia:open-project", (_event, projectPath) => {
 ipcMain.handle("formia:get-project-server-status", () => latestProjectServerStatus);
 
 ipcMain.handle("formia:get-codex-availability", () => latestCodexAvailability);
+
+ipcMain.handle("formia:get-installed-fonts", () => getInstalledFonts());
 
 ipcMain.handle("formia:stop-project-server", () => {
   activeProjectServer?.stop();

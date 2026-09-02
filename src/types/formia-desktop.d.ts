@@ -9,6 +9,7 @@ interface Window {
     stopProjectServer: () => Promise<void>;
     buildWithCodex: (payload: unknown) => Promise<{ jobId: string }>;
     getCodexAvailability: () => Promise<{ state: "checking" | "available" | "unavailable"; message: string }>;
+    getInstalledFonts: () => Promise<string[]>;
     onCodexAvailability: (callback: (status: { state: "checking" | "available" | "unavailable"; message: string }) => void) => () => void;
     onProjectServerStatus: (callback: (status: { state: "starting" | "ready" | "failed" | "stopped"; url?: string; message: string }) => void) => () => void;
     onCodexStatus: (callback: (status: { jobId: string; state: "working" | "applied" | "failed"; message: string }) => void) => () => void;
