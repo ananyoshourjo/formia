@@ -17,6 +17,8 @@ The current prototype is a minimal Next.js and shadcn/ui interface packaged as a
 - In a normal browser, the application is displayed in an iframe.
 - In the Electron app, the application is displayed in a webview with an inspector preload script.
 - Inspect mode can highlight and select a rendered DOM element in the Electron canvas.
+- The Layers panel displays a collapsible tree of visible rendered elements, with available React component names, and can select or highlight elements in the canvas.
+- Layers can be dragged in the panel or on the canvas to reorder siblings, reparent into another element, or move back to the page root; these changes remain temporary until Build.
 - The properties sidebar displays the selected element's identity, dimensions, computed styles, HTML attributes, and—when React runtime information is discoverable—the component name and a compact view of its props.
 - Selected properties can be edited as temporary preview overrides. The current preview editor supports class names, text content, and a constrained set of inline CSS properties, with per-property and full-preview reset actions.
 - Preview overrides are tracked as staged changes without modifying the project source. The **Build** action sends the selected element, runtime context, and staged changes to Codex in the background.
@@ -30,6 +32,8 @@ The current prototype is a minimal Next.js and shadcn/ui interface packaged as a
 - Recent project entries are stored locally in the Formia renderer. They retain the folder path but are not synchronized across machines or users.
 - Server startup supports common npm, pnpm, yarn, and bun projects with Next.js and Vite-specific host and port arguments; unusual project scripts may still require the manual URL field.
 - Browser mode can render the app but cannot use the Electron-only element inspector.
+- The Layers panel is currently desktop-only and represents the runtime DOM rather than a stable source-level component tree; runtime layer IDs are recreated when the preview reloads.
+- Structural moves are intentionally permissive and may change the rendered layout; Reset restores the preview, while Build asks Codex to apply the corresponding JSX reorder or reparenting.
 - Preview overrides are runtime-only and disappear when the canvas is reloaded, the project is reopened, or the preview is reset. They become source changes only after the user invokes Build and Codex completes successfully.
 - The background Codex bridge requires the local `codex` CLI to be installed and authenticated. Its current source edit is guided by runtime evidence and the staged diff; reliable AST-level source mapping and a user-facing source diff are not implemented yet.
 - Codex is currently started with workspace-write access scoped to the selected project and no approval prompts. Formia does not yet create a dedicated backup, commit, or rollback point for each generated change.
