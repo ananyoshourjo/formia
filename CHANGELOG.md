@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0] - 2026-09-03
+
+### Added
+
+- Added focused border controls for style, width, color, and radius to the visual inspector.
+- Added a Box Sizing selector to Layout with Content-box and Border-box options.
+
+### Changed
+
+- Reorganized editable properties by purpose and removed the separate Computed styles section.
+
 ## [0.3.0] - 2026-09-03
 
 ### Added

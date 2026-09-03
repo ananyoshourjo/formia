@@ -504,6 +504,62 @@ function ColorGroup({ selection, onApplyStyle, onResetStyle }: { selection: Sele
   );
 }
 
+const borderStyleOptions = [
+  { value: "none", label: "None" },
+  { value: "solid", label: "Solid" },
+  { value: "dashed", label: "Dashed" },
+  { value: "dotted", label: "Dotted" },
+  { value: "double", label: "Double" },
+] as const;
+
+const borderUnits = [
+  { value: "px", label: "Pixels" },
+  { value: "rem", label: "Rem" },
+  { value: "em", label: "Em" },
+] as const;
+
+const borderRadiusUnits = [...borderUnits, { value: "%", label: "Percent" }] as const;
+
+function BorderStyleField({ value, onChange, onReset }: { value: string | undefined; onChange: (value: string) => void; onReset: () => void }) {
+  return (
+    <div className="space-y-1">
+      <Hint content="border-style"><label htmlFor="border-style" className={inspectorLabelClass}>Style</label></Hint>
+      <div className="group relative flex h-7 min-w-0 items-center rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5">
+        <Select value={value || "none"} onValueChange={onChange}>
+          <SelectTrigger id="border-style" size="sm" aria-label="Edit border style" className="h-7 min-w-0 w-full items-center justify-start gap-1 rounded-none border-0 bg-transparent p-0 pr-8 text-[14px] leading-none font-normal text-foreground shadow-none focus-visible:ring-0 [&>svg]:hidden">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent position="popper" className="rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
+            {borderStyleOptions.map((option) => <SelectItem key={option.value} value={option.value} className="rounded-[3px] px-2 py-1 text-[14px]">{option.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Hint content="Reset border style">
+          <Button type="button" variant="ghost" size="icon-xs" className="absolute right-5 top-1/2 z-10 size-4 -translate-y-1/2 rounded bg-background p-0 text-muted-foreground opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100" onClick={onReset} aria-label="Reset border style">
+            <ArrowCounterClockwiseIcon className="size-3.5" />
+          </Button>
+        </Hint>
+        <CaretDownIcon className="pointer-events-none absolute right-0.5 top-1/2 z-10 size-3 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+      </div>
+    </div>
+  );
+}
+
+function BorderGroup({ selection, onApplyStyle, onResetStyle }: { selection: SelectedElement; onApplyStyle: (property: string, value: string) => void; onResetStyle: (property: string) => void }) {
+  return (
+    <section className={inspectorSectionClass}>
+      <h3 className={inspectorTitleClass}>Border</h3>
+      <div className="space-y-1">
+        <BorderStyleField value={selection.styles.borderStyle} onChange={(value) => onApplyStyle("borderStyle", value)} onReset={() => onResetStyle("borderStyle")} />
+        <div className="grid grid-cols-2 gap-1">
+          <SizingLayoutField label="Width" name="border-width" value={selection.styles.borderWidth} fallback={1} unitOptions={borderUnits} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("borderWidth", sizingCssValue(value, unit, 1, []))} onReset={() => onResetStyle("borderWidth")} />
+          <SizingLayoutField label="Radius" name="border-radius" value={selection.styles.borderRadius} fallback={0} unitOptions={borderRadiusUnits} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("borderRadius", sizingCssValue(value, unit, 0, []))} onReset={() => onResetStyle("borderRadius")} />
+        </div>
+        <ColorField label="Color" name="border" property="borderColor" value={selection.styles.borderColor} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
+      </div>
+    </section>
+  );
+}
+
 function CompactLayoutField({
   label,
   name,
@@ -857,6 +913,11 @@ const overflowOptions = [
   { value: "scroll", label: "Scroll" },
 ] as const;
 
+const boxSizingOptions = [
+  { value: "content-box", label: "Content-box" },
+  { value: "border-box", label: "Border-box" },
+] as const;
+
 function normalizeDistribution(value: string | undefined) {
   if (value === "center" || value === "flex-start" || value === "flex-end" || value === "space-between" || value === "space-around" || value === "space-evenly") return value;
   if (value === "start") return "flex-start";
@@ -1161,6 +1222,8 @@ function LayoutGroup({
             <SizingLayoutField label="MH" name="min-height" value={selection.styles.minHeight} fallback={0} inlineLabel onCommit={(value, unit) => commitSizing("minHeight", value, unit)} onReset={() => onResetStyle("minHeight")} />
           </div>
         </div>
+
+        <LayoutSelectField label="Box Sizing" name="box-sizing" value={selection.styles.boxSizing} options={boxSizingOptions} onChange={(value) => onApplyStyle("boxSizing", value)} />
 
         <SpacingGroup selection={selection} onApplyStyle={onApplyStyle} />
 
@@ -1501,16 +1564,7 @@ function PropertiesSidebar({
             <LayoutGroup key={selection.selectionId ?? `${selection.tagName}-${selection.id ?? "selected"}`} selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
             <TypographyGroup selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
             <ColorGroup selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
-            <PropertyGroup
-              title="Computed styles"
-              values={{
-                border: selection.styles.border,
-                borderRadius: selection.styles.borderRadius,
-                overflow: selection.styles.overflow,
-                boxSizing: selection.styles.boxSizing,
-                zIndex: selection.styles.zIndex,
-              }}
-            />
+            <BorderGroup selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
             <PropertyGroup title="Attributes" values={selection.attributes} />
           </>
         ) : (
