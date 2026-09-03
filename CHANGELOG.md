@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0] - 2026-09-04
+
+### Added
+
+- Added a desktop-only Layers panel that exposes the rendered structure with React component names where available.
+- Added temporary drag-and-drop reordering and reparenting from the Layers panel and the canvas.
+
+### Changed
+
+- Structural preview moves now persist across runtime refreshes, can be reset with the other preview overrides, and are sent to Codex as JSX reorder or reparent requests during Build.
+- Improved desktop canvas sizing for tall rendered pages.
+
 ## [0.4.0] - 2026-09-03
 
 ### Added

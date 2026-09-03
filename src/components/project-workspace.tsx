@@ -1,7 +1,8 @@
 "use client";
 
-import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { AlignLeftIcon, AngleIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowsOutIcon, CaretDownIcon, CheckIcon, CircleNotchIcon, ColumnsIcon, CursorIcon, DotIcon, DotsNineIcon, FlipHorizontalIcon, FlipVerticalIcon, GridFourIcon, HandGrabbingIcon, LinkSimpleHorizontalIcon, MinusIcon, PlusIcon, RowsIcon, SplitHorizontalIcon, SquareIcon, StackSimpleIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { createElement, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { AlignBottomIcon, AlignLeftIcon, AngleIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowsInLineVerticalIcon, ArrowsOutIcon, ArrowsOutLineVerticalIcon, BrowserIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CircleIcon, CircleNotchIcon, ClipboardTextIcon, ColumnsIcon, CompassIcon, CursorIcon, DotIcon, DotsNineIcon, FlipHorizontalIcon, FlipVerticalIcon, FrameCornersIcon, GridFourIcon, HandGrabbingIcon, ImageIcon, LinkSimpleIcon, LinkSimpleHorizontalIcon, ListBulletsIcon, ListDashesIcon, ListNumbersIcon, MinusIcon, ParagraphIcon, PathIcon, PlusIcon, RectangleIcon, RowsIcon, ShapesIcon, SidebarIcon, SplitHorizontalIcon, SquareIcon, StackIcon, StackSimpleIcon, TableIcon, TextHIcon, TextboxIcon, VideoCameraIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import type { Icon } from "@phosphor-icons/react";
 import { AlignBottomFilled, AlignHorizontalCenterFilled, AlignLeft2Filled, AlignRight2Filled, AlignTopFilled, Columns3Filled } from "@mingcute/react/core-filled";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import { AArrowUpIcon, CaseLowerIcon, CaseSensitiveIcon, CaseUpperIcon, FitToScreenIcon, MinusSignIcon, ParagraphSpacingIcon, TextAlignCenterIcon, TextAlignJustifyCenterIcon, TextAlignLeft01Icon, TextAlignLeftIcon, TextAlignRight01Icon, TextAlignRightIcon, TextStrikethroughIcon, TextUnderlineIcon, TextVariableFrontIcon, XLineTopIcon } from "@hugeicons/core-free-icons";
@@ -42,11 +43,26 @@ type PreviewChange = {
   source: string | null;
   text: string;
   changes: Array<{
-    kind: "style" | "class" | "text";
+    kind: "style" | "class" | "text" | "structure";
     property?: string;
     from: string;
     to: string;
   }>;
+};
+
+type LayerNode = {
+  selectionId: string;
+  tagName: string;
+  name: string;
+  detail: string | null;
+  children: LayerNode[];
+};
+
+type LayerDropTarget = {
+  type: "before" | "inside" | "after";
+  selectionId: string | null;
+  parentId: string | null;
+  beforeSelectionId: string | null;
 };
 
 type CodexStatus = {
@@ -78,7 +94,8 @@ type CanvasWheelInput = {
 const subscribeToRuntime = () => () => undefined;
 const getDesktopSnapshot = () => Boolean(window.formiaDesktop?.isDesktop);
 const getDesktopServerSnapshot = () => false;
-const artboardSize = { width: 1440, height: 900 };
+const artboardWidth = 1440;
+const minimumArtboardHeight = 900;
 const minZoom = 0.1;
 const maxZoom = 4;
 
@@ -1435,6 +1452,367 @@ function buildIndicatorLabel(indicator: BuildIndicator) {
   return "Build is up to date";
 }
 
+function getLayerIcon(tagName: string): Icon {
+  switch (tagName.toLowerCase()) {
+    case "div":
+      return FrameCornersIcon;
+    case "aside":
+      return SidebarIcon;
+    case "nav":
+      return CompassIcon;
+    case "header":
+      return RowsIcon;
+    case "main":
+      return BrowserIcon;
+    case "section":
+      return StackIcon;
+    case "footer":
+      return AlignBottomIcon;
+    case "button":
+      return RectangleIcon;
+    case "form":
+      return ClipboardTextIcon;
+    case "input":
+    case "textarea":
+      return TextboxIcon;
+    case "h1":
+    case "h2":
+    case "h3":
+    case "h4":
+    case "h5":
+    case "h6":
+      return TextHIcon;
+    case "p":
+      return ParagraphIcon;
+    case "a":
+      return LinkSimpleIcon;
+    case "img":
+      return ImageIcon;
+    case "video":
+      return VideoCameraIcon;
+    case "ul":
+      return ListBulletsIcon;
+    case "ol":
+      return ListNumbersIcon;
+    case "li":
+      return ListDashesIcon;
+    case "table":
+      return TableIcon;
+    case "tr":
+      return RowsIcon;
+    case "td":
+    case "th":
+      return ColumnsIcon;
+    case "svg":
+      return ShapesIcon;
+    case "path":
+      return PathIcon;
+    case "rect":
+      return SquareIcon;
+    case "circle":
+      return CircleIcon;
+    case "span":
+      return TextHIcon;
+    default:
+      return FrameCornersIcon;
+  }
+}
+
+function LayerIcon({ tagName }: { tagName: string }) {
+  return createElement(getLayerIcon(tagName), {
+    "aria-hidden": true,
+    className: "size-3.5 shrink-0 text-muted-foreground",
+  });
+}
+
+function collectExpandableLayerIds(nodes: LayerNode[], ids = new Set<string>()) {
+  for (const node of nodes) {
+    if (node.children.length > 0) ids.add(node.selectionId);
+    collectExpandableLayerIds(node.children, ids);
+  }
+  return ids;
+}
+
+function LayerRow({
+  node,
+  depth,
+  parentId,
+  nextSiblingId,
+  selectedId,
+  collapsedIds,
+  draggedId,
+  dropTarget,
+  onToggle,
+  onSelect,
+  onHighlight,
+  onClearHighlight,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+}: {
+  node: LayerNode;
+  depth: number;
+  parentId: string | null;
+  nextSiblingId: string | null;
+  selectedId: string | null;
+  collapsedIds: Set<string>;
+  draggedId: string | null;
+  dropTarget: LayerDropTarget | null;
+  onToggle: (selectionId: string) => void;
+  onSelect: (selectionId: string) => void;
+  onHighlight: (selectionId: string) => void;
+  onClearHighlight: () => void;
+  onDragStart: (event: ReactDragEvent<HTMLButtonElement>, selectionId: string) => void;
+  onDragOver: (event: ReactDragEvent<HTMLDivElement>, node: LayerNode, parentId: string | null, nextSiblingId: string | null) => void;
+  onDrop: (event: ReactDragEvent<HTMLDivElement>, node: LayerNode, parentId: string | null, nextSiblingId: string | null) => void;
+  onDragEnd: () => void;
+}) {
+  const hasChildren = node.children.length > 0;
+  const collapsed = collapsedIds.has(node.selectionId);
+  const selected = selectedId === node.selectionId;
+  const isInsideTarget = dropTarget?.type === "inside" && dropTarget.selectionId === node.selectionId;
+  const isBeforeTarget = dropTarget?.type === "before" && dropTarget.selectionId === node.selectionId;
+  const isAfterTarget = dropTarget?.type === "after" && dropTarget.selectionId === node.selectionId;
+
+  return (
+    <div>
+      {isBeforeTarget ? <div className="h-0.5 rounded-full bg-foreground" style={{ marginLeft: `${depth * 12 + 26}px` }} /> : null}
+      <div
+        className={`group flex min-w-0 items-center gap-0.5 rounded-[5px] ${selected ? "bg-accent text-accent-foreground" : "hover:bg-muted/70"} ${isInsideTarget ? "ring-1 ring-foreground/30" : ""} ${draggedId === node.selectionId ? "opacity-40" : ""}`}
+        style={{ paddingLeft: `${depth * 12 + 2}px` }}
+        onMouseEnter={() => onHighlight(node.selectionId)}
+        onMouseLeave={onClearHighlight}
+        onDragOver={(event) => onDragOver(event, node, parentId, nextSiblingId)}
+        onDrop={(event) => onDrop(event, node, parentId, nextSiblingId)}
+      >
+        <button
+          type="button"
+          className={`flex size-5 shrink-0 items-center justify-center rounded-[3px] text-muted-foreground ${hasChildren ? "hover:bg-background/80 hover:text-foreground" : "invisible"}`}
+          onClick={() => {
+            if (hasChildren) onToggle(node.selectionId);
+          }}
+          aria-label={collapsed ? `Expand ${node.name}` : `Collapse ${node.name}`}
+          tabIndex={hasChildren ? 0 : -1}
+        >
+          {collapsed ? <CaretRightIcon className="size-3" /> : <CaretDownIcon className="size-3" />}
+        </button>
+        <button
+          type="button"
+          draggable
+          className="flex min-w-0 flex-1 cursor-grab items-center gap-1.5 rounded-[3px] px-1.5 py-1 text-left text-[12px] leading-4 outline-none focus-visible:cursor-grabbing focus-visible:ring-1 focus-visible:ring-ring"
+          onClick={() => onSelect(node.selectionId)}
+          onDragStart={(event) => onDragStart(event, node.selectionId)}
+           onDragEnd={onDragEnd}
+           aria-current={selected ? "true" : undefined}
+           aria-label={`${node.tagName.toLowerCase()} ${node.name}`}
+           title={node.detail ? `${node.tagName.toLowerCase()} · ${node.name} · ${node.detail}` : `${node.tagName.toLowerCase()} · ${node.name}`}
+         >
+          <LayerIcon tagName={node.tagName} />
+          <span className="min-w-0 truncate font-normal">{node.name}</span>
+          {node.detail ? <span className="min-w-0 truncate text-muted-foreground">{node.detail}</span> : null}
+        </button>
+      </div>
+      {hasChildren && !collapsed ? (
+        <div>
+          {node.children.map((child, index) => (
+            <LayerRow
+              key={child.selectionId}
+              node={child}
+              depth={depth + 1}
+              parentId={node.selectionId}
+              nextSiblingId={node.children[index + 1]?.selectionId || null}
+              selectedId={selectedId}
+              collapsedIds={collapsedIds}
+              draggedId={draggedId}
+              dropTarget={dropTarget}
+              onToggle={onToggle}
+              onSelect={onSelect}
+              onHighlight={onHighlight}
+              onClearHighlight={onClearHighlight}
+              onDragStart={onDragStart}
+              onDragOver={onDragOver}
+              onDrop={onDrop}
+              onDragEnd={onDragEnd}
+            />
+          ))}
+        </div>
+      ) : null}
+      {isAfterTarget ? <div className="h-0.5 rounded-full bg-foreground" style={{ marginLeft: `${depth * 12 + 26}px` }} /> : null}
+    </div>
+  );
+}
+
+function LayerPanel({
+  isDesktop,
+  canvasUrl,
+  layerTree,
+  selection,
+  onBack,
+  onRefresh,
+  onSelectLayer,
+  onHighlightLayer,
+  onClearLayerHighlight,
+  onMoveLayer,
+}: {
+  isDesktop: boolean;
+  canvasUrl: string | null;
+  layerTree: LayerNode[];
+  selection: SelectedElement | null;
+  onBack: () => void;
+  onRefresh: () => void;
+  onSelectLayer: (selectionId: string) => void;
+  onHighlightLayer: (selectionId: string) => void;
+  onClearLayerHighlight: () => void;
+  onMoveLayer: (payload: { sourceSelectionId: string; targetParentId: string | null; beforeSelectionId: string | null }) => void;
+}) {
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<LayerDropTarget | null>(null);
+
+  function toggleLayer(selectionId: string) {
+    setCollapsedIds((current) => {
+      const next = new Set(current);
+      if (next.has(selectionId)) next.delete(selectionId);
+      else next.add(selectionId);
+      return next;
+    });
+  }
+
+  function expandAllLayers() {
+    setCollapsedIds(new Set());
+  }
+
+  function collapseAllLayers() {
+    setCollapsedIds(collectExpandableLayerIds(layerTree));
+  }
+
+  function getDropTarget(event: ReactDragEvent<HTMLDivElement>, node: LayerNode, parentId: string | null, nextSiblingId: string | null): LayerDropTarget | null {
+    if (!draggedId || draggedId === node.selectionId) return null;
+
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const relativeY = bounds.height > 0 ? (event.clientY - bounds.top) / bounds.height : 0.5;
+    if (relativeY < 0.25) return { type: "before", selectionId: node.selectionId, parentId, beforeSelectionId: node.selectionId };
+    if (relativeY > 0.75) return { type: "after", selectionId: node.selectionId, parentId, beforeSelectionId: nextSiblingId };
+    return { type: "inside", selectionId: node.selectionId, parentId: node.selectionId, beforeSelectionId: null };
+  }
+
+  function handleDragStart(event: ReactDragEvent<HTMLButtonElement>, selectionId: string) {
+    setDraggedId(selectionId);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", selectionId);
+  }
+
+  function handleDragOver(event: ReactDragEvent<HTMLDivElement>, node: LayerNode, parentId: string | null, nextSiblingId: string | null) {
+    const target = getDropTarget(event, node, parentId, nextSiblingId);
+    if (!target) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDropTarget(target);
+  }
+
+  function handleDrop(event: ReactDragEvent<HTMLDivElement>, node: LayerNode, parentId: string | null, nextSiblingId: string | null) {
+    event.preventDefault();
+    const target = getDropTarget(event, node, parentId, nextSiblingId);
+    if (draggedId && target) {
+      onMoveLayer({
+        sourceSelectionId: draggedId,
+        targetParentId: target.parentId,
+        beforeSelectionId: target.beforeSelectionId,
+      });
+    }
+    setDraggedId(null);
+    setDropTarget(null);
+  }
+
+  function handleDragEnd() {
+    setDraggedId(null);
+    setDropTarget(null);
+  }
+
+  function handleRootDragOver(event: ReactDragEvent<HTMLDivElement>) {
+    if (!draggedId) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDropTarget({ type: "inside", selectionId: null, parentId: null, beforeSelectionId: null });
+  }
+
+  function handleRootDrop(event: ReactDragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    if (draggedId) onMoveLayer({ sourceSelectionId: draggedId, targetParentId: null, beforeSelectionId: null });
+    handleDragEnd();
+  }
+
+  return (
+    <aside className="flex h-screen w-64 shrink-0 flex-col border-r border-border bg-background text-foreground">
+      <header className="flex shrink-0 items-center gap-1 border-b border-border bg-background px-2 py-2.5">
+        <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" onClick={onBack} aria-label="Back to project selection">
+          <ArrowLeftIcon />
+        </Button>
+        <div className="min-w-0 flex-1 px-1">
+          <h2 className="text-[14px] leading-4 font-medium">Layers</h2>
+          <p className="mt-0.5 truncate text-[11px] leading-4 text-muted-foreground">Rendered structure</p>
+        </div>
+        <Hint content="Expand all layers">
+          <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" onClick={expandAllLayers} disabled={!isDesktop || !canvasUrl || layerTree.length === 0} aria-label="Expand all layers">
+            <ArrowsOutLineVerticalIcon />
+          </Button>
+        </Hint>
+        <Hint content="Collapse all layers">
+          <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" onClick={collapseAllLayers} disabled={!isDesktop || !canvasUrl || layerTree.length === 0} aria-label="Collapse all layers">
+            <ArrowsInLineVerticalIcon />
+          </Button>
+        </Hint>
+        <Hint content="Refresh layers">
+          <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" onClick={onRefresh} disabled={!isDesktop || !canvasUrl} aria-label="Refresh layers">
+            <ArrowClockwiseIcon />
+          </Button>
+        </Hint>
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
+        {!isDesktop ? (
+          <div className="px-3 py-8 text-center text-xs leading-5 text-muted-foreground">Open Formia in the desktop app to inspect layers.</div>
+        ) : !canvasUrl ? (
+          <div className="px-3 py-8 text-center text-xs leading-5 text-muted-foreground">Connect a project to see its layers.</div>
+        ) : layerTree.length === 0 ? (
+          <div className="px-3 py-8 text-center text-xs leading-5 text-muted-foreground">Loading layers…</div>
+        ) : (
+          <>
+            {layerTree.map((node, index) => (
+              <LayerRow
+                key={node.selectionId}
+                node={node}
+                depth={0}
+                parentId={null}
+                nextSiblingId={layerTree[index + 1]?.selectionId || null}
+                selectedId={selection?.selectionId || null}
+                collapsedIds={collapsedIds}
+                draggedId={draggedId}
+                dropTarget={dropTarget}
+                onToggle={toggleLayer}
+                onSelect={onSelectLayer}
+                onHighlight={onHighlightLayer}
+                onClearHighlight={onClearLayerHighlight}
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+                onDragEnd={handleDragEnd}
+              />
+            ))}
+            <div
+              className={`mt-2 rounded-[5px] border border-dashed px-2 py-1.5 text-center text-[11px] leading-4 text-muted-foreground ${dropTarget?.selectionId === null ? "border-foreground/50 bg-muted/60 text-foreground" : "border-border"}`}
+              onDragOver={handleRootDragOver}
+              onDrop={handleRootDrop}
+            >
+              Drop at page root
+            </div>
+          </>
+        )}
+      </div>
+    </aside>
+  );
+}
+
 function PropertiesSidebar({
   selection,
   projectPath,
@@ -1621,7 +1999,9 @@ export function ProjectWorkspace({
   const [canvasKey, setCanvasKey] = useState(0);
   const [inspectMode, setInspectMode] = useState(false);
   const [selection, setSelection] = useState<SelectedElement | null>(null);
+  const [layerTree, setLayerTree] = useState<LayerNode[]>([]);
   const [canvasBackground, setCanvasBackground] = useState("#f9f9f9");
+  const [artboardHeight, setArtboardHeight] = useState(minimumArtboardHeight);
   const [codexStatus, setCodexStatus] = useState<CodexStatus>({ state: "idle", message: "" });
   const [projectServerStatus, setProjectServerStatus] = useState<ProjectServerStatus>({ state: "stopped", message: "" });
   const [zoom, setZoom] = useState(0.75);
@@ -1632,11 +2012,36 @@ export function ProjectWorkspace({
   const panStartRef = useRef<{ pointerX: number; pointerY: number; panX: number; panY: number } | null>(null);
   const webviewHostRef = useRef<HTMLDivElement>(null);
   const webviewRef = useRef<FormiaWebviewElement>(null);
+  const artboardHeightRef = useRef(minimumArtboardHeight);
   const zoomRef = useRef(0.75);
   const panRef = useRef({ x: 0, y: 0 });
   const zoomTargetRef = useRef(0.75);
   const panTargetRef = useRef({ x: 0, y: 0 });
   const viewportAnimationRef = useRef<number | null>(null);
+  const handleWebviewWheelRef = useRef(handleWebviewWheel);
+  handleWebviewWheelRef.current = handleWebviewWheel;
+
+  const updateArtboardHeight = useCallback((nextHeight: number) => {
+    const previousHeight = artboardHeightRef.current;
+    if (nextHeight === previousHeight) return;
+
+    artboardHeightRef.current = nextHeight;
+    setArtboardHeight(nextHeight);
+
+    // Keep the page's top edge stationary while its bottom grows or shrinks.
+    const heightDelta = nextHeight - previousHeight;
+    const nextPan = {
+      ...panRef.current,
+      y: panRef.current.y + (heightDelta * zoomRef.current) / 2,
+    };
+    const nextPanTarget = {
+      ...panTargetRef.current,
+      y: panTargetRef.current.y + (heightDelta * zoomTargetRef.current) / 2,
+    };
+    panRef.current = nextPan;
+    panTargetRef.current = nextPanTarget;
+    setPan(nextPan);
+  }, []);
 
   useEffect(() => () => {
     if (viewportAnimationRef.current !== null) cancelAnimationFrame(viewportAnimationRef.current);
@@ -1655,11 +2060,31 @@ export function ProjectWorkspace({
     webview.setAttribute("preload", window.formiaDesktop.inspectorPreloadUrl);
     webview.setAttribute("partition", "persist:formia-canvas");
 
-    const syncInspectMode = () => webview.send("formia:set-inspect-mode", false);
+    const syncInspectMode = () => {
+      webview.send("formia:set-inspect-mode", false);
+      webview.send("formia:get-layer-tree");
+    };
+    const resetArtboardHeight = () => updateArtboardHeight(minimumArtboardHeight);
+    const remeasureArtboardHeight = () => {
+      resetArtboardHeight();
+      requestAnimationFrame(() => webview.send("formia:measure-page-height"));
+    };
     const receiveSelection = (event: Event) => {
       const message = event as FormiaWebviewEvent;
       if (message.channel === "formia:canvas-wheel") {
-        handleWebviewWheel(message.args[0] as CanvasWheelInput);
+        handleWebviewWheelRef.current(message.args[0] as CanvasWheelInput);
+        return;
+      }
+      if (message.channel === "formia:page-height") {
+        const nextHeight = Number(message.args[0]);
+        if (Number.isFinite(nextHeight) && nextHeight > 0) {
+          updateArtboardHeight(Math.max(minimumArtboardHeight, Math.ceil(nextHeight)));
+        }
+        return;
+      }
+      if (message.channel === "formia:layer-tree") {
+        const payload = message.args[0] as { nodes?: LayerNode[] } | undefined;
+        setLayerTree(Array.isArray(payload?.nodes) ? payload.nodes : []);
         return;
       }
       if (message.channel === "formia:element-selected" || message.channel === "formia:element-updated") {
@@ -1672,6 +2097,8 @@ export function ProjectWorkspace({
     };
 
     webview.addEventListener("did-finish-load", syncInspectMode);
+    webview.addEventListener("did-start-loading", resetArtboardHeight);
+    webview.addEventListener("did-navigate-in-page", remeasureArtboardHeight);
     webview.addEventListener("ipc-message", receiveSelection);
     host.appendChild(webview);
     webviewRef.current = webview;
@@ -1679,11 +2106,13 @@ export function ProjectWorkspace({
 
     return () => {
       webview.removeEventListener("did-finish-load", syncInspectMode);
+      webview.removeEventListener("did-start-loading", resetArtboardHeight);
+      webview.removeEventListener("did-navigate-in-page", remeasureArtboardHeight);
       webview.removeEventListener("ipc-message", receiveSelection);
       if (webviewRef.current === webview) webviewRef.current = null;
       webview.remove();
     };
-  }, [active, canvasKey, canvasUrl, isDesktop]);
+  }, [active, canvasKey, canvasUrl, isDesktop, updateArtboardHeight]);
 
   useEffect(() => {
     const unsubscribe = window.formiaDesktop?.onCodexStatus((status) => {
@@ -1705,6 +2134,7 @@ export function ProjectWorkspace({
       if (status.state === "starting") {
         setCanvasUrl(null);
         setSelection(null);
+        setLayerTree([]);
       }
       if (status.url) {
         setCanvasUrl(status.url);
@@ -1756,8 +2186,8 @@ export function ProjectWorkspace({
 
     const padding = 64;
     const nextZoom = clampZoom(Math.min(
-      (viewport.clientWidth - padding) / artboardSize.width,
-      (viewport.clientHeight - padding) / artboardSize.height,
+      (viewport.clientWidth - padding) / artboardWidth,
+      (viewport.clientHeight - padding) / artboardHeight,
     ));
     animateViewport(nextZoom, { x: 0, y: 0 });
   }
@@ -1813,10 +2243,9 @@ export function ProjectWorkspace({
   }
 
   function handleCanvasWheelInput(input: CanvasWheelInput) {
-    const isMouseWheel = input.deltaMode !== 0 || Math.max(Math.abs(input.deltaX), Math.abs(input.deltaY)) >= 40;
     const isPinch = input.ctrlKey;
 
-    if (input.shiftKey || (!isPinch && !isMouseWheel)) {
+    if (input.shiftKey && !isPinch) {
       const nextPan = {
         x: panTargetRef.current.x - input.deltaX,
         y: panTargetRef.current.y - input.deltaY,
@@ -1861,8 +2290,8 @@ export function ProjectWorkspace({
     if (!webview) return;
 
     const bounds = webview.getBoundingClientRect();
-    const scaleX = bounds.width / artboardSize.width;
-    const scaleY = bounds.height / artboardSize.height;
+    const scaleX = bounds.width / artboardWidth;
+    const scaleY = bounds.height / artboardHeightRef.current;
     handleCanvasWheelInput({
       ...input,
       clientX: bounds.left + (input.clientX || 0) * scaleX,
@@ -1897,6 +2326,26 @@ export function ProjectWorkspace({
 
   function sendCanvasMessage(channel: string, ...args: unknown[]) {
     webviewRef.current?.send(channel, ...args);
+  }
+
+  function refreshLayers() {
+    sendCanvasMessage("formia:get-layer-tree");
+  }
+
+  function selectLayer(selectionId: string) {
+    sendCanvasMessage("formia:select-layer", selectionId);
+  }
+
+  function highlightLayer(selectionId: string) {
+    sendCanvasMessage("formia:highlight-layer", selectionId);
+  }
+
+  function clearLayerHighlight() {
+    sendCanvasMessage("formia:clear-layer-highlight");
+  }
+
+  function moveLayer(payload: { sourceSelectionId: string; targetParentId: string | null; beforeSelectionId: string | null }) {
+    sendCanvasMessage("formia:move-layer", payload);
   }
 
   function clearCanvasSelection() {
@@ -1936,6 +2385,18 @@ export function ProjectWorkspace({
 
   return (
     <main className={active ? "relative flex h-screen overflow-hidden bg-muted/50" : "hidden"}>
+      <LayerPanel
+        isDesktop={isDesktop}
+        canvasUrl={canvasUrl}
+        layerTree={layerTree}
+        selection={selection}
+        onBack={goBack}
+        onRefresh={refreshLayers}
+        onSelectLayer={selectLayer}
+        onHighlightLayer={highlightLayer}
+        onClearLayerHighlight={clearLayerHighlight}
+        onMoveLayer={moveLayer}
+      />
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="min-h-0 flex-1">
           <div
@@ -1962,8 +2423,8 @@ export function ProjectWorkspace({
                 style={{
                   left: "50%",
                   top: "50%",
-                  width: artboardSize.width,
-                  height: artboardSize.height,
+                  width: artboardWidth,
+                  height: artboardHeight,
                   transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px)`,
                 }}
               >
@@ -2031,19 +2492,6 @@ export function ProjectWorkspace({
                 </div>
               </div>
             </div>
-
-      <Hint content="Back to project selection">
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          className="absolute left-3 top-3 z-40 bg-background/95 shadow-[0_2px_8px_rgba(0,0,0,0.08)] backdrop-blur"
-          onClick={goBack}
-          aria-label="Back to project selection"
-        >
-          <ArrowLeftIcon />
-        </Button>
-      </Hint>
 
       <PropertiesSidebar
         selection={selection}

@@ -1,11 +1,81 @@
 const { ipcRenderer } = require("electron");
 
+const minimumPageHeight = 900;
+let pageHeightTimer = null;
+let pageHeightDeadline = null;
+let pageHeightObserver = null;
+let hasReportedPageHeight = false;
+
+function measurePageHeight() {
+  if (hasReportedPageHeight) return;
+  hasReportedPageHeight = true;
+  if (pageHeightTimer !== null) clearTimeout(pageHeightTimer);
+  if (pageHeightDeadline !== null) clearTimeout(pageHeightDeadline);
+  pageHeightTimer = null;
+  pageHeightDeadline = null;
+  pageHeightObserver?.disconnect();
+  pageHeightObserver = null;
+
+  const root = document.documentElement;
+  const body = document.body;
+  const height = Math.max(
+    minimumPageHeight,
+    root?.scrollHeight || 0,
+    root?.offsetHeight || 0,
+    body?.scrollHeight || 0,
+    body?.offsetHeight || 0,
+  );
+
+  ipcRenderer.sendToHost("formia:page-height", height);
+  root?.style.setProperty("overflow", "hidden", "important");
+  root?.style.setProperty("overscroll-behavior", "none", "important");
+  body?.style.setProperty("overflow", "hidden", "important");
+  body?.style.setProperty("overscroll-behavior", "none", "important");
+  window.scrollTo(0, 0);
+}
+
+function schedulePageHeightMeasurement() {
+  if (hasReportedPageHeight) return;
+  if (pageHeightTimer !== null) clearTimeout(pageHeightTimer);
+  pageHeightTimer = setTimeout(measurePageHeight, 250);
+}
+
+function preparePageHeightMeasurement() {
+  hasReportedPageHeight = false;
+  schedulePageHeightMeasurement();
+
+  pageHeightObserver?.disconnect();
+  pageHeightObserver = new MutationObserver(schedulePageHeightMeasurement);
+  pageHeightObserver.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    characterData: true,
+  });
+
+  if (pageHeightDeadline !== null) clearTimeout(pageHeightDeadline);
+  pageHeightDeadline = setTimeout(measurePageHeight, 2000);
+}
+
+window.addEventListener("DOMContentLoaded", preparePageHeightMeasurement);
+window.addEventListener("load", schedulePageHeightMeasurement);
+window.addEventListener("DOMContentLoaded", prepareLayerTreeObservation);
+window.addEventListener("popstate", () => {
+  preparePageHeightMeasurement();
+  scheduleLayerTreeUpdate();
+});
+
 let inspectMode = false;
 let hoveredElement = null;
 let selectedElement = null;
 let selectionSequence = 0;
+let layerTreeObserver = null;
+let layerTreeTimer = null;
 
 const selectionAttribute = "data-formia-selection-id";
+const layerTreeExcludedTags = new Set(["SCRIPT", "STYLE", "LINK", "META", "TITLE", "NOSCRIPT", "TEMPLATE", "SVG", "PATH", "CIRCLE", "RECT", "LINE", "POLYLINE", "POLYGON"]);
+const maximumLayerTreeNodes = 800;
+const maximumLayerTreeDepth = 12;
 const editableStyleProperties = new Set([
   "x",
   "y",
@@ -72,6 +142,12 @@ const editableStyleProperties = new Set([
 ]);
 const elementSnapshots = new WeakMap();
 const touchedElements = new Set();
+const structureSnapshots = new WeakMap();
+const structuralMoves = new Map();
+let isReapplyingStructuralMoves = false;
+let layerPointerDrag = null;
+let suppressNextClick = false;
+let canvasDropTarget = null;
 
 const overlay = document.createElement("div");
 Object.assign(overlay.style, {
@@ -81,6 +157,28 @@ Object.assign(overlay.style, {
   zIndex: "2147483647",
   border: "2px solid #2563eb",
   background: "rgba(37, 99, 235, 0.08)",
+});
+
+const dropIndicator = document.createElement("div");
+Object.assign(dropIndicator.style, {
+  position: "fixed",
+  display: "none",
+  pointerEvents: "none",
+  zIndex: "2147483646",
+  height: "3px",
+  borderRadius: "999px",
+  background: "#0d0d0d",
+  boxShadow: "0 0 0 1px rgba(255, 255, 255, 0.7)",
+});
+
+const dropTargetOverlay = document.createElement("div");
+Object.assign(dropTargetOverlay.style, {
+  position: "fixed",
+  display: "none",
+  pointerEvents: "none",
+  zIndex: "2147483645",
+  border: "2px dashed #0d0d0d",
+  background: "rgba(13, 13, 13, 0.05)",
 });
 
 const scrollbarStyle = document.createElement("style");
@@ -113,6 +211,12 @@ function ensureOverlay() {
   if (!overlay.isConnected && document.documentElement) {
     document.documentElement.appendChild(overlay);
   }
+  if (!dropIndicator.isConnected && document.documentElement) {
+    document.documentElement.appendChild(dropIndicator);
+  }
+  if (!dropTargetOverlay.isConnected && document.documentElement) {
+    document.documentElement.appendChild(dropTargetOverlay);
+  }
 }
 
 function moveOverlay(element) {
@@ -130,6 +234,38 @@ function moveOverlay(element) {
 function hideOverlay() {
   overlay.style.display = "none";
   hoveredElement = null;
+}
+
+function hideDropIndicator() {
+  dropIndicator.style.display = "none";
+  dropTargetOverlay.style.display = "none";
+  canvasDropTarget = null;
+}
+
+function showDropTarget(target) {
+  ensureOverlay();
+  canvasDropTarget = target;
+  if (target.type === "inside") {
+    const rect = target.parent.getBoundingClientRect();
+    Object.assign(dropTargetOverlay.style, {
+      display: "block",
+      left: `${rect.left}px`,
+      top: `${rect.top}px`,
+      width: `${rect.width}px`,
+      height: `${rect.height}px`,
+    });
+    dropIndicator.style.display = "none";
+    return;
+  }
+
+  const rect = target.element.getBoundingClientRect();
+  Object.assign(dropIndicator.style, {
+    display: "block",
+    left: `${rect.left}px`,
+    top: `${target.type === "before" ? rect.top : rect.bottom - 1}px`,
+    width: `${rect.width}px`,
+  });
+  dropTargetOverlay.style.display = "none";
 }
 
 function cssPropertyName(property) {
@@ -162,19 +298,21 @@ function rememberInlineStyle(element, cssName) {
 }
 
 function selectElement(element) {
-  if (selectedElement && selectedElement !== element) {
-    selectedElement.removeAttribute(selectionAttribute);
-  }
-
   selectedElement = element;
-  if (!selectedElement.hasAttribute(selectionAttribute)) {
-    selectionSequence += 1;
-    selectedElement.setAttribute(selectionAttribute, `formia-${selectionSequence}`);
-  }
+  ensureLayerSelectionId(selectedElement);
+}
+
+function ensureLayerSelectionId(element) {
+  const existingId = element.getAttribute(selectionAttribute);
+  if (existingId) return existingId;
+
+  selectionSequence += 1;
+  const selectionId = `formia-${selectionSequence}`;
+  element.setAttribute(selectionAttribute, selectionId);
+  return selectionId;
 }
 
 function clearSelection() {
-  if (selectedElement) selectedElement.removeAttribute(selectionAttribute);
   selectedElement = null;
   hideOverlay();
   ipcRenderer.sendToHost("formia:selection-cleared");
@@ -187,6 +325,104 @@ function isDocumentSurface(element) {
 function isSelectionBackground(element) {
   if (isDocumentSurface(element)) return true;
   return Boolean(selectedElement && element !== selectedElement && element.contains(selectedElement));
+}
+
+function layerIndex(element) {
+  if (!element.parentElement) return -1;
+  return Array.from(element.parentElement.children).indexOf(element);
+}
+
+function layerDescription(element) {
+  if (!element) return "page root";
+  const componentName = getReactComponentName(element);
+  const name = componentName || element.tagName.toLowerCase();
+  return element.id ? `${name} (#${element.id})` : name;
+}
+
+function rememberStructure(element) {
+  if (structureSnapshots.has(element)) return structureSnapshots.get(element);
+
+  const snapshot = {
+    parent: element.parentElement,
+    nextSibling: element.nextElementSibling,
+    index: layerIndex(element),
+  };
+  structureSnapshots.set(element, snapshot);
+  return snapshot;
+}
+
+function isOriginalPlacement(element, snapshot) {
+  return Boolean(snapshot?.parent && element.parentElement === snapshot.parent && element.nextElementSibling === snapshot.nextSibling);
+}
+
+function moveElementTo(element, targetParent, beforeElement = null) {
+  if (!(element instanceof Element) || !(targetParent instanceof Element)) return false;
+  if (element === targetParent || element.contains(targetParent)) return false;
+  if (beforeElement && (beforeElement === element || beforeElement.parentElement !== targetParent)) return false;
+  if (element.parentElement === targetParent && element.nextElementSibling === beforeElement) return false;
+
+  const snapshot = rememberStructure(element);
+  targetParent.insertBefore(element, beforeElement);
+
+  if (isOriginalPlacement(element, snapshot)) {
+    structuralMoves.delete(element);
+    structureSnapshots.delete(element);
+  } else {
+    structuralMoves.set(element, {
+      element,
+      originalParent: snapshot.parent,
+      originalNextSibling: snapshot.nextSibling,
+      originalIndex: snapshot.index,
+      targetParent,
+      targetBefore: beforeElement,
+    });
+  }
+
+  return true;
+}
+
+function restoreStructuralOverrides() {
+  const moves = Array.from(structuralMoves.values()).reverse();
+  for (const move of moves) {
+    if (!move.element.isConnected || !move.originalParent?.isConnected) continue;
+    const siblings = Array.from(move.originalParent.children).filter((element) => element !== move.element);
+    const originalReference = siblings[move.originalIndex] || null;
+    move.originalParent.insertBefore(move.element, originalReference);
+  }
+
+  structuralMoves.clear();
+}
+
+function reapplyStructuralOverrides() {
+  if (isReapplyingStructuralMoves || structuralMoves.size === 0) return;
+
+  isReapplyingStructuralMoves = true;
+  for (const move of structuralMoves.values()) {
+    if (!move.element.isConnected || !move.targetParent.isConnected) continue;
+    if (move.element.parentElement !== move.targetParent || move.element.nextElementSibling !== move.targetBefore) {
+      move.targetParent.insertBefore(move.element, move.targetBefore);
+    }
+  }
+  isReapplyingStructuralMoves = false;
+}
+
+function moveLayer(selectionId, targetParentId, beforeSelectionId) {
+  const element = findLayerElement(selectionId);
+  const targetParent = targetParentId ? findLayerElement(targetParentId) : document.body;
+  const beforeElement = beforeSelectionId ? findLayerElement(beforeSelectionId) : null;
+  if (!(element instanceof Element) || !(targetParent instanceof Element) || (beforeSelectionId && !(beforeElement instanceof Element))) return;
+  if (isDocumentSurface(element) || (isDocumentSurface(targetParent) && targetParent !== document.body)) return;
+  commitElementMove(element, { parent: targetParent, before: beforeElement });
+}
+
+function commitElementMove(element, target) {
+  if (!moveElementTo(element, target.parent, target.before)) return false;
+
+  selectElement(element);
+  moveOverlay(element);
+  ipcRenderer.sendToHost("formia:element-selected", selectionPayload(element));
+  sendLayerTree();
+  return true;
 }
 
 function sendUpdatedSelection() {
@@ -304,6 +540,8 @@ function resetText() {
 }
 
 function resetAllOverrides() {
+  restoreStructuralOverrides();
+
   for (const element of touchedElements) {
     const snapshot = elementSnapshots.get(element);
     if (!snapshot) continue;
@@ -327,6 +565,7 @@ function resetAllOverrides() {
 
   touchedElements.clear();
   sendUpdatedSelection();
+  sendLayerTree();
 }
 
 function inspectAtPoint(x, y) {
@@ -341,6 +580,181 @@ function inspectAtPoint(x, y) {
   moveOverlay(element);
   selectElement(element);
   ipcRenderer.sendToHost("formia:element-selected", selectionPayload(element));
+}
+
+function getReactComponentName(element) {
+  const fiberKey = Object.keys(element).find((key) => key.startsWith("__reactFiber$"));
+  let fiber = fiberKey ? element[fiberKey] : null;
+
+  while (fiber) {
+    const component = fiber.type;
+    if (typeof component === "function" || (component && typeof component === "object")) {
+      const name = component.displayName || component.name || component.render?.displayName || component.render?.name;
+      if (name) return name;
+    }
+    fiber = fiber.return;
+  }
+
+  return null;
+}
+
+function layerDetail(element) {
+  if (element.id) return `#${element.id}`;
+  if (element.children.length === 0) {
+    const text = (element.textContent || "").trim().replace(/\s+/g, " ");
+    if (text) return text.slice(0, 40);
+  }
+  return null;
+}
+
+function buildLayerNode(element, state, depth = 0) {
+  if (state.count >= maximumLayerTreeNodes || layerTreeExcludedTags.has(element.tagName)) return null;
+
+  const computed = getComputedStyle(element);
+  if (computed.display === "none" || computed.visibility === "hidden") return null;
+
+  state.count += 1;
+  const children = depth < maximumLayerTreeDepth
+    ? Array.from(element.children).map((child) => buildLayerNode(child, state, depth + 1)).filter(Boolean)
+    : [];
+  const rect = element.getBoundingClientRect();
+  if (children.length === 0 && (rect.width <= 0 || rect.height <= 0)) return null;
+
+  const componentName = getReactComponentName(element);
+  return {
+    selectionId: ensureLayerSelectionId(element),
+    tagName: element.tagName.toLowerCase(),
+    name: componentName || element.tagName.toLowerCase(),
+    detail: layerDetail(element),
+    children,
+  };
+}
+
+function collectLayerTree() {
+  if (!document.body) return [];
+  const state = { count: 0 };
+  return Array.from(document.body.children)
+    .map((element) => buildLayerNode(element, state))
+    .filter(Boolean);
+}
+
+function sendLayerTree() {
+  if (!document.body) return;
+  reapplyStructuralOverrides();
+  ipcRenderer.sendToHost("formia:layer-tree", { nodes: collectLayerTree() });
+}
+
+function scheduleLayerTreeUpdate() {
+  if (layerTreeTimer !== null) clearTimeout(layerTreeTimer);
+  layerTreeTimer = setTimeout(() => {
+    layerTreeTimer = null;
+    sendLayerTree();
+  }, 250);
+}
+
+function prepareLayerTreeObservation() {
+  layerTreeObserver?.disconnect();
+  if (!document.documentElement) return;
+
+  layerTreeObserver = new MutationObserver(scheduleLayerTreeUpdate);
+  layerTreeObserver.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  });
+  scheduleLayerTreeUpdate();
+}
+
+function findLayerElement(selectionId) {
+  if (typeof selectionId !== "string" || !selectionId) return null;
+  return Array.from(document.querySelectorAll(`[${selectionAttribute}]`)).find((element) => element.getAttribute(selectionAttribute) === selectionId) || null;
+}
+
+function highlightLayer(selectionId) {
+  const element = findLayerElement(selectionId);
+  if (!(element instanceof Element)) return;
+  hoveredElement = element;
+  moveOverlay(element);
+}
+
+function clearLayerHighlight() {
+  if (selectedElement) moveOverlay(selectedElement);
+  else hideOverlay();
+}
+
+function selectLayer(selectionId) {
+  const element = findLayerElement(selectionId);
+  if (!(element instanceof Element) || isDocumentSurface(element)) return;
+  moveOverlay(element);
+  selectElement(element);
+  ipcRenderer.sendToHost("formia:element-selected", selectionPayload(element));
+}
+
+function findCanvasDropTarget(x, y, source) {
+  const element = document.elementFromPoint(x, y);
+  if (!(element instanceof Element) || element === overlay || element === dropIndicator || element === dropTargetOverlay) return null;
+  if (element === source || source.contains(element) || element === document.documentElement || element === document.scrollingElement || layerTreeExcludedTags.has(element.tagName)) return null;
+  if (element === document.body) return { type: "inside", element, parent: document.body, before: null };
+
+  const parent = element.parentElement;
+  if (!parent || isDocumentSurface(parent) && parent !== document.body) return null;
+  const rect = element.getBoundingClientRect();
+  const relativeY = rect.height > 0 ? (y - rect.top) / rect.height : 0.5;
+  if (relativeY < 0.25) return { type: "before", element, parent, before: element };
+  if (relativeY > 0.75) return { type: "after", element, parent, before: element.nextElementSibling };
+  return { type: "inside", element, parent: element, before: null };
+}
+
+function beginCanvasLayerDrag(event) {
+  if (!inspectMode || event.button !== 0 || layerPointerDrag) return;
+  const element = event.target;
+  if (!(element instanceof Element) || element === overlay || isDocumentSurface(element) || layerTreeExcludedTags.has(element.tagName)) return;
+
+  layerPointerDrag = {
+    element,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    moved: false,
+  };
+  element.setPointerCapture?.(event.pointerId);
+}
+
+function moveCanvasLayerDrag(event) {
+  if (!layerPointerDrag || event.pointerId !== layerPointerDrag.pointerId) return;
+
+  const deltaX = event.clientX - layerPointerDrag.startX;
+  const deltaY = event.clientY - layerPointerDrag.startY;
+  if (!layerPointerDrag.moved && Math.hypot(deltaX, deltaY) < 5) return;
+
+  if (!layerPointerDrag.moved) {
+    layerPointerDrag.moved = true;
+    suppressNextClick = true;
+    selectElement(layerPointerDrag.element);
+    ipcRenderer.sendToHost("formia:element-selected", selectionPayload(layerPointerDrag.element));
+  }
+
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const target = findCanvasDropTarget(event.clientX, event.clientY, layerPointerDrag.element);
+  if (target) showDropTarget(target);
+  else hideDropIndicator();
+}
+
+function endCanvasLayerDrag(event) {
+  if (!layerPointerDrag || event.pointerId !== layerPointerDrag.pointerId) return;
+
+  const drag = layerPointerDrag;
+  layerPointerDrag = null;
+  drag.element.releasePointerCapture?.(event.pointerId);
+  if (!drag.moved) return;
+  if (event.type === "pointercancel") suppressNextClick = false;
+
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const target = canvasDropTarget;
+  hideDropIndicator();
+  if (target) commitElementMove(drag.element, target);
 }
 
 function compactValue(value, depth = 0, seen = new WeakSet()) {
@@ -529,12 +943,56 @@ function collectPreviewChanges() {
   });
 }
 
+function collectStructuralPreviewChanges() {
+  return Array.from(structuralMoves.values()).flatMap((move) => {
+    if (!move.element.isConnected || !move.targetParent.isConnected) return [];
+
+    const details = inspectElement(move.element);
+    return [{
+      selectionId: details.selectionId,
+      tagName: details.tagName,
+      source: details.react?.source || null,
+      text: details.text,
+      changes: [{
+        kind: "structure",
+        property: "parent/order",
+        from: `${layerDescription(move.originalParent)} at index ${move.originalIndex}`,
+        to: `${layerDescription(move.targetParent)} at index ${layerIndex(move.element)}`,
+      }],
+    }];
+  });
+}
+
 function selectionPayload(element) {
   return {
     ...inspectElement(element),
-    previewChanges: collectPreviewChanges(),
+    previewChanges: [...collectPreviewChanges(), ...collectStructuralPreviewChanges()],
   };
 }
+
+window.addEventListener(
+  "pointerdown",
+  beginCanvasLayerDrag,
+  true,
+);
+
+window.addEventListener(
+  "pointermove",
+  moveCanvasLayerDrag,
+  true,
+);
+
+window.addEventListener(
+  "pointerup",
+  endCanvasLayerDrag,
+  true,
+);
+
+window.addEventListener(
+  "pointercancel",
+  endCanvasLayerDrag,
+  true,
+);
 
 window.addEventListener(
   "mousemove",
@@ -551,6 +1009,12 @@ window.addEventListener(
 window.addEventListener(
   "click",
   (event) => {
+    if (suppressNextClick) {
+      suppressNextClick = false;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
     if (!inspectMode) return;
     const element = event.target;
     if (!(element instanceof Element) || element === overlay) return;
@@ -586,7 +1050,16 @@ window.addEventListener(
 
 ipcRenderer.on("formia:set-inspect-mode", (_event, enabled) => {
   inspectMode = Boolean(enabled);
-  if (!inspectMode) hideOverlay();
+  if (!inspectMode) {
+    layerPointerDrag = null;
+    suppressNextClick = false;
+    hideDropIndicator();
+    hideOverlay();
+  }
+});
+
+ipcRenderer.on("formia:measure-page-height", () => {
+  preparePageHeightMeasurement();
 });
 
 ipcRenderer.on("formia:clear-selection", () => {
@@ -595,6 +1068,26 @@ ipcRenderer.on("formia:clear-selection", () => {
 
 ipcRenderer.on("formia:inspect-at-point", (_event, payload) => {
   inspectAtPoint(Number(payload?.x), Number(payload?.y));
+});
+
+ipcRenderer.on("formia:get-layer-tree", () => {
+  sendLayerTree();
+});
+
+ipcRenderer.on("formia:highlight-layer", (_event, selectionId) => {
+  highlightLayer(selectionId);
+});
+
+ipcRenderer.on("formia:clear-layer-highlight", () => {
+  clearLayerHighlight();
+});
+
+ipcRenderer.on("formia:select-layer", (_event, selectionId) => {
+  selectLayer(selectionId);
+});
+
+ipcRenderer.on("formia:move-layer", (_event, payload) => {
+  moveLayer(payload?.sourceSelectionId, payload?.targetParentId || null, payload?.beforeSelectionId || null);
 });
 
 ipcRenderer.on("formia:apply-style", (_event, payload) => {
