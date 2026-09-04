@@ -14,6 +14,7 @@ let selectedProjectPath = null;
 let latestProjectServerStatus = { state: "stopped", message: "Project server stopped" };
 let latestCodexAvailability = { state: "checking", message: "Checking for Codex" };
 let installedFontsPromise = null;
+let projectServerStartPromise = Promise.resolve();
 
 function getInstalledFonts() {
   if (installedFontsPromise) return installedFontsPromise;
@@ -400,21 +401,37 @@ class ProjectDevServer {
     });
   }
 
-  stop() {
+  async stop() {
     this.stopped = true;
-    if (!this.process || this.process.killed) return;
-    const processId = this.process.pid;
-    if (process.platform === "win32" && processId) {
-      spawn("taskkill.exe", ["/PID", String(processId), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
-    } else {
-      this.process.kill();
+    if (!this.process || this.process.killed) {
+      this.process = null;
+      this.ready = false;
+      return;
     }
+    const processId = this.process?.pid;
     this.process = null;
+    this.ready = false;
+    if (!processId) return;
+
+    try {
+      if (process.platform === "win32") {
+        await terminateProcessTree(processId);
+      } else {
+        try {
+          process.kill(processId);
+        } catch (error) {
+          if (error?.code !== "ESRCH") throw error;
+        }
+      }
+      await waitForProcessExit(processId);
+    } catch (error) {
+      if (isProcessRunning(processId)) throw error;
+    }
   }
 }
 
 async function startProjectServer(projectPath) {
-  activeProjectServer?.stop();
+  await activeProjectServer?.stop();
   activeProjectServer = null;
   const metadata = readProjectMetadata(projectPath);
   sendProjectServerStatus({ state: "starting", message: `Starting ${metadata.packageManager} ${metadata.script}` });
@@ -433,11 +450,19 @@ async function startProjectServer(projectPath) {
     sendProjectServerStatus({ state: "ready", url, message: `Connected to ${url}` });
     return { url, metadata };
   } catch (error) {
-    server.stop();
-    if (activeProjectServer === server) activeProjectServer = null;
-    sendProjectServerStatus({ state: "failed", message: error instanceof Error ? error.message : "The project server failed to start." });
+    await server.stop();
+    if (activeProjectServer === server) {
+      activeProjectServer = null;
+      sendProjectServerStatus({ state: "failed", message: error instanceof Error ? error.message : "The project server failed to start." });
+    }
     throw error;
   }
+}
+
+function queueProjectServerStart(projectPath) {
+  const startPromise = projectServerStartPromise.then(() => startProjectServer(projectPath));
+  projectServerStartPromise = startPromise.catch(() => {});
+  return startPromise;
 }
 
 function buildCodexPrompt(payload) {
@@ -714,7 +739,7 @@ function openProjectPath(projectPath) {
     path: resolvedProjectPath,
     url: null,
   };
-  void startProjectServer(resolvedProjectPath).catch(() => {});
+  void queueProjectServerStart(resolvedProjectPath).catch(() => {});
   return project;
 }
 
@@ -735,13 +760,39 @@ ipcMain.handle("formia:open-project", (_event, projectPath) => {
 
 ipcMain.handle("formia:get-project-server-status", () => latestProjectServerStatus);
 
+ipcMain.handle("formia:restart-project-server", () => {
+  if (!selectedProjectPath) throw new Error("Select a project before restarting its server.");
+  return queueProjectServerStart(selectedProjectPath);
+});
+
 ipcMain.handle("formia:get-codex-availability", () => latestCodexAvailability);
 
 ipcMain.handle("formia:get-installed-fonts", () => getInstalledFonts());
 
-ipcMain.handle("formia:stop-project-server", () => {
-  activeProjectServer?.stop();
+ipcMain.handle("formia:window-minimize", (event) => {
+  BrowserWindow.fromWebContents(event.sender)?.minimize();
+});
+
+ipcMain.handle("formia:window-toggle-maximize", (event) => {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  if (!window) return false;
+  if (window.isMaximized()) window.unmaximize();
+  else window.maximize();
+  return window.isMaximized();
+});
+
+ipcMain.handle("formia:window-is-maximized", (event) => {
+  return BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false;
+});
+
+ipcMain.handle("formia:window-close", (event) => {
+  BrowserWindow.fromWebContents(event.sender)?.close();
+});
+
+ipcMain.handle("formia:stop-project-server", async () => {
+  const server = activeProjectServer;
   activeProjectServer = null;
+  await server?.stop();
   sendProjectServerStatus({ state: "stopped", message: "Project server stopped" });
 });
 
@@ -768,6 +819,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     backgroundColor: "#ffffff",
+    titleBarStyle: "hidden",
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -808,6 +860,6 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
-  activeProjectServer?.stop();
+  void activeProjectServer?.stop().catch(() => {});
   activeCodexJob?.server.stop();
 });

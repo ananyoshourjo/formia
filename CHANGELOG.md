@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.0] - 2026-09-04
+
+### Added
+
+- Added manual Refresh app and Restart server actions to the Build menu.
+- Added a custom desktop title bar with window controls, workspace navigation, and collapsible sidebars.
+
+### Changed
+
+- Refined the desktop workspace shell and canvas presentation around the Layers, canvas, and Properties surfaces.
+
 ## [0.5.0] - 2026-09-04
 
 ### Added

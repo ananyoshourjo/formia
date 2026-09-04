@@ -1,10 +1,11 @@
 "use client";
 
 import { type ChangeEvent, type InputHTMLAttributes, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowRightIcon, CheckIcon, CircleNotchIcon, FolderOpenIcon, WarningCircleIcon, XIcon } from "@phosphor-icons/react";
+import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, CircleNotchIcon, FolderOpenIcon, SidebarSimpleIcon, WarningCircleIcon, XIcon } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/tooltip";
+import { WindowControls } from "@/components/window-controls";
 
 const directoryInputProps = {
   webkitdirectory: "",
@@ -116,6 +117,27 @@ export function ProjectSelector({ codexAvailability, onOpen }: { codexAvailabili
 
   return (
     <main className="min-h-screen bg-background text-foreground">
+      <header className="formia-titlebar flex h-10 shrink-0 items-center border-b border-border bg-white px-2">
+        <div className="flex items-center gap-0.5">
+          <Button type="button" variant="ghost" size="icon-sm" className="formia-no-drag rounded-[5px]" disabled aria-label="Show sidebars">
+            <SidebarSimpleIcon className="size-4" />
+          </Button>
+          <Button type="button" variant="ghost" size="icon-sm" className="formia-no-drag rounded-[5px]" disabled aria-label="Back">
+            <ArrowLeftIcon className="size-4" />
+          </Button>
+          <Button type="button" variant="ghost" size="icon-sm" className="formia-no-drag rounded-[5px]" disabled aria-label="Forward">
+            <ArrowRightIcon className="size-4" />
+          </Button>
+        </div>
+        <div className="mx-2 h-5 w-px bg-border" />
+        <nav className="flex items-center gap-0.5 text-[13px]" aria-label="Application menu">
+          <span className="rounded-[5px] px-2 py-1">File</span>
+          <span className="rounded-[5px] px-2 py-1">Edit</span>
+          <span className="rounded-[5px] px-2 py-1">View</span>
+          <span className="rounded-[5px] px-2 py-1">Help</span>
+        </nav>
+        <WindowControls />
+      </header>
       <input
         ref={directoryInputRef}
         type="file"
@@ -124,7 +146,7 @@ export function ProjectSelector({ codexAvailability, onOpen }: { codexAvailabili
         onChange={openProject}
         {...directoryInputProps}
       />
-      <div className="flex min-h-screen">
+      <div className="flex min-h-[calc(100vh-2.5rem)]">
         <aside className="hidden w-64 shrink-0 flex-col border-r border-border bg-sidebar p-3 md:flex">
           <div className="flex h-9 items-center px-2">
             <span className="text-sm font-semibold tracking-tight">Formia</span>
