@@ -49,7 +49,7 @@
 }
 
 :root {
-  --background: #fcfcfc;
+  --background: #ffffff;
   --foreground: #0d0d0d;
   --card: #ffffff;
   --card-foreground: #0d0d0d;
@@ -73,7 +73,7 @@
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
-  --sidebar: #fcfcfc;
+  --sidebar: #ffffff;
   --sidebar-foreground: #0d0d0d;
   --sidebar-primary: #0d0d0d;
   --sidebar-primary-foreground: #ffffff;
@@ -129,9 +129,17 @@
     height: 0;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-white text-foreground;
+    background-color: #ffffff;
   }
   html {
     @apply font-sans;
+    background-color: #ffffff;
+  }
+  .formia-titlebar {
+    -webkit-app-region: drag;
+  }
+  .formia-no-drag {
+    -webkit-app-region: no-drag;
   }
 }

@@ -11,10 +11,15 @@ contextBridge.exposeInMainWorld("formiaDesktop", {
   selectProject: () => ipcRenderer.invoke("formia:select-project"),
   openProject: (projectPath) => ipcRenderer.invoke("formia:open-project", projectPath),
   getProjectServerStatus: () => ipcRenderer.invoke("formia:get-project-server-status"),
+  restartProjectServer: () => ipcRenderer.invoke("formia:restart-project-server"),
   stopProjectServer: () => ipcRenderer.invoke("formia:stop-project-server"),
   buildWithCodex: (payload) => ipcRenderer.invoke("formia:codex-build", payload),
   getCodexAvailability: () => ipcRenderer.invoke("formia:get-codex-availability"),
   getInstalledFonts: () => ipcRenderer.invoke("formia:get-installed-fonts"),
+  minimizeWindow: () => ipcRenderer.invoke("formia:window-minimize"),
+  toggleMaximizeWindow: () => ipcRenderer.invoke("formia:window-toggle-maximize"),
+  isWindowMaximized: () => ipcRenderer.invoke("formia:window-is-maximized"),
+  closeWindow: () => ipcRenderer.invoke("formia:window-close"),
   onCodexAvailability: (callback) => {
     const listener = (_event, status) => callback(status);
     ipcRenderer.on("formia:codex-availability", listener);

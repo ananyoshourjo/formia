@@ -1,7 +1,7 @@
 "use client";
 
 import { createElement, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { AlignBottomIcon, AlignLeftIcon, AngleIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowsInLineVerticalIcon, ArrowsOutIcon, ArrowsOutLineVerticalIcon, BrowserIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CircleIcon, CircleNotchIcon, ClipboardTextIcon, ColumnsIcon, CompassIcon, CursorIcon, DotIcon, DotsNineIcon, FlipHorizontalIcon, FlipVerticalIcon, FrameCornersIcon, GridFourIcon, HandGrabbingIcon, ImageIcon, LinkSimpleIcon, LinkSimpleHorizontalIcon, ListBulletsIcon, ListDashesIcon, ListNumbersIcon, MinusIcon, ParagraphIcon, PathIcon, PlusIcon, RectangleIcon, RowsIcon, ShapesIcon, SidebarIcon, SplitHorizontalIcon, SquareIcon, StackIcon, StackSimpleIcon, TableIcon, TextHIcon, TextboxIcon, VideoCameraIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { AlignBottomIcon, AlignLeftIcon, AngleIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowRightIcon, ArrowsInLineVerticalIcon, ArrowsOutIcon, ArrowsOutLineVerticalIcon, BrowserIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CircleIcon, CircleNotchIcon, ClipboardTextIcon, ColumnsIcon, CompassIcon, CursorIcon, DotIcon, DotsNineIcon, FlipHorizontalIcon, FlipVerticalIcon, FrameCornersIcon, GridFourIcon, HandGrabbingIcon, ImageIcon, LinkSimpleIcon, LinkSimpleHorizontalIcon, ListBulletsIcon, ListDashesIcon, ListNumbersIcon, MinusIcon, ParagraphIcon, PathIcon, PlusIcon, QuestionIcon, RectangleIcon, RowsIcon, ShapesIcon, SidebarIcon, SidebarSimpleIcon, SplitHorizontalIcon, SquareIcon, StackIcon, StackSimpleIcon, TableIcon, TextHIcon, TextboxIcon, VideoCameraIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
 import { AlignBottomFilled, AlignHorizontalCenterFilled, AlignLeft2Filled, AlignRight2Filled, AlignTopFilled, Columns3Filled } from "@mingcute/react/core-filled";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
@@ -11,16 +11,20 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { ColorPicker } from "@/components/ui/color-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Hint } from "@/components/ui/tooltip";
+import { WindowControls } from "@/components/window-controls";
 
 type SelectedElement = {
   selectionId: string | null;
@@ -1644,22 +1648,22 @@ function LayerRow({
 }
 
 function LayerPanel({
+  className,
   isDesktop,
   canvasUrl,
   layerTree,
   selection,
-  onBack,
   onRefresh,
   onSelectLayer,
   onHighlightLayer,
   onClearLayerHighlight,
   onMoveLayer,
 }: {
+  className?: string;
   isDesktop: boolean;
   canvasUrl: string | null;
   layerTree: LayerNode[];
   selection: SelectedElement | null;
-  onBack: () => void;
   onRefresh: () => void;
   onSelectLayer: (selectionId: string) => void;
   onHighlightLayer: (selectionId: string) => void;
@@ -1744,11 +1748,8 @@ function LayerPanel({
   }
 
   return (
-    <aside className="flex h-screen w-64 shrink-0 flex-col border-r border-border bg-background text-foreground">
+    <aside className={`flex h-full w-64 shrink-0 flex-col border-r border-border bg-white text-foreground ${className || ""}`}>
       <header className="flex shrink-0 items-center gap-1 border-b border-border bg-background px-2 py-2.5">
-        <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" onClick={onBack} aria-label="Back to project selection">
-          <ArrowLeftIcon />
-        </Button>
         <div className="min-w-0 flex-1 px-1">
           <h2 className="text-[14px] leading-4 font-medium">Layers</h2>
           <p className="mt-0.5 truncate text-[11px] leading-4 text-muted-foreground">Rendered structure</p>
@@ -1813,17 +1814,154 @@ function LayerPanel({
   );
 }
 
+function WorkspaceToolbar({
+  className,
+  inspectMode,
+  isDesktop,
+  onToggleInspect,
+}: {
+  className?: string;
+  inspectMode: boolean;
+  isDesktop: boolean;
+  onToggleInspect: () => void;
+}) {
+  return (
+    <aside className={`flex h-full w-11 shrink-0 flex-col items-center border-r border-border bg-white pt-2 ${className || ""}`} aria-label="Workspace tools">
+      <Hint content={inspectMode ? "Stop inspecting" : "Inspect element"}>
+        <Button
+          type="button"
+          variant={inspectMode ? "default" : "ghost"}
+          size="icon-sm"
+          className="rounded-[5px]"
+          onClick={onToggleInspect}
+          disabled={!isDesktop}
+          aria-pressed={inspectMode}
+          aria-label={inspectMode ? "Stop inspecting" : "Inspect element"}
+        >
+          <CursorIcon />
+        </Button>
+      </Hint>
+    </aside>
+  );
+}
+
+function WorkspaceTopbar({
+  sidebarsVisible,
+  canGoBack,
+  canGoForward,
+  onToggleSidebars,
+  onBack,
+  onForward,
+  onBackToProjects,
+  onResetPreview,
+  onFitCanvas,
+}: {
+  sidebarsVisible: boolean;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  onToggleSidebars: () => void;
+  onBack: () => void;
+  onForward: () => void;
+  onBackToProjects: () => void;
+  onResetPreview: () => void;
+  onFitCanvas: () => void;
+}) {
+  const menuTriggerClass = "formia-no-drag h-7 rounded-[5px] px-2 text-[13px] text-foreground hover:bg-muted";
+  const menuItemClass = "rounded-[4px] px-2 py-1.5 text-[13px]";
+
+  return (
+    <header className="formia-titlebar z-40 flex h-10 shrink-0 items-center border-b border-border bg-white px-2 text-foreground">
+      <div className="flex items-center gap-0.5">
+        <Hint content={sidebarsVisible ? "Hide sidebars" : "Show sidebars"}>
+          <Button type="button" variant="ghost" size="icon-sm" className="formia-no-drag rounded-[5px]" onClick={onToggleSidebars} aria-label={sidebarsVisible ? "Hide sidebars" : "Show sidebars"} aria-pressed={sidebarsVisible}>
+            <SidebarSimpleIcon className="size-4" />
+          </Button>
+        </Hint>
+        <Hint content="Back">
+          <Button type="button" variant="ghost" size="icon-sm" className="formia-no-drag rounded-[5px]" onClick={onBack} disabled={!canGoBack} aria-label="Back">
+            <ArrowLeftIcon className="size-4" />
+          </Button>
+        </Hint>
+        <Hint content="Forward">
+          <Button type="button" variant="ghost" size="icon-sm" className="formia-no-drag rounded-[5px]" onClick={onForward} disabled={!canGoForward} aria-label="Forward">
+            <ArrowRightIcon className="size-4" />
+          </Button>
+        </Hint>
+      </div>
+
+      <div className="mx-2 h-5 w-px bg-border" />
+
+      <nav className="flex items-center gap-0.5" aria-label="Application menu">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="ghost" size="xs" className={menuTriggerClass}>File</Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-48">
+            <DropdownMenuItem className={menuItemClass} onSelect={onBackToProjects}>
+              <ArrowLeftIcon />
+              Back to projects
+              <DropdownMenuShortcut>Ctrl+[</DropdownMenuShortcut>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="ghost" size="xs" className={menuTriggerClass}>Edit</Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-48">
+            <DropdownMenuItem className={menuItemClass} onSelect={onResetPreview}>
+              <ArrowCounterClockwiseIcon />
+              Reset preview
+              <DropdownMenuShortcut>Ctrl+Z</DropdownMenuShortcut>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="ghost" size="xs" className={menuTriggerClass}>View</Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-52">
+            <DropdownMenuCheckboxItem className={menuItemClass} checked={sidebarsVisible} onCheckedChange={() => onToggleSidebars()}>
+              <SidebarSimpleIcon />
+              Show sidebars
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className={menuItemClass} onSelect={onFitCanvas}>
+              <ArrowsOutIcon />
+              Fit artboard
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="ghost" size="xs" className={menuTriggerClass}>Help</Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-48">
+            <DropdownMenuItem className={menuItemClass} disabled>
+              <QuestionIcon />
+              Keyboard shortcuts
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </nav>
+      <WindowControls />
+    </header>
+  );
+}
+
 function PropertiesSidebar({
+  className,
   selection,
   projectPath,
-  inspectMode,
   isDesktop,
   codexAvailability,
   codexStatus,
   projectServerStatus,
   canvasBackground,
-  onToggleInspect,
+  canRefreshApp,
   onBuild,
+  onRestartServer,
+  onRefreshApp,
   onCanvasBackgroundChange,
   onApplyStyle,
   onResetStyle,
@@ -1831,16 +1969,18 @@ function PropertiesSidebar({
   onResetText,
   onResetAll,
 }: {
+  className?: string;
   selection: SelectedElement | null;
   projectPath: string | null;
-  inspectMode: boolean;
   isDesktop: boolean;
   codexAvailability: CodexAvailability;
   codexStatus: CodexStatus;
   projectServerStatus: ProjectServerStatus;
   canvasBackground: string;
-  onToggleInspect: () => void;
+  canRefreshApp: boolean;
   onBuild: () => void;
+  onRestartServer: () => void;
+  onRefreshApp: () => void;
   onCanvasBackgroundChange: (value: string) => void;
   onApplyStyle: (property: string, value: string) => void;
   onResetStyle: (property: string) => void;
@@ -1852,22 +1992,9 @@ function PropertiesSidebar({
   const buildBlocked = !isDesktop || codexAvailability.state !== "available" || !projectPath || !selection?.previewChanges?.length || codexStatus.state === "working";
 
   return (
-    <aside className="flex h-screen w-72 shrink-0 flex-col border-l border-border bg-background text-foreground">
+    <aside className={`flex h-full w-72 shrink-0 flex-col border-l border-border bg-white text-foreground ${className || ""}`}>
       <header className="shrink-0 border-b border-border bg-background px-3 py-2.5">
         <div className="flex items-center justify-end gap-1">
-          <Hint content={inspectMode ? "Stop inspecting" : "Inspect element"}>
-            <Button
-              type="button"
-              variant={inspectMode ? "default" : "ghost"}
-              size="icon"
-              onClick={onToggleInspect}
-              disabled={!isDesktop}
-              aria-pressed={inspectMode}
-              aria-label={inspectMode ? "Stop inspecting" : "Inspect element"}
-            >
-              <CursorIcon />
-            </Button>
-          </Hint>
           <Hint content="Reset preview">
             <Button
               type="button"
@@ -1880,21 +2007,40 @@ function PropertiesSidebar({
               <ArrowCounterClockwiseIcon />
             </Button>
           </Hint>
-          <Hint content={!isDesktop ? "Open Formia in the desktop app to enable Build" : buildIndicator === "unavailable" || buildIndicator === "checking" ? codexAvailability.message : !projectPath ? "Select a project from the desktop app to enable Build" : buildIndicator === "up-to-date" ? buildIndicatorLabel(buildIndicator) : "Send staged visual changes to Codex"}>
-            <Button
-              type="button"
-              size="lg"
-              className={`pl-4 font-normal ${buildBlocked ? "cursor-not-allowed" : ""}`}
-              onClick={() => {
-                if (!buildBlocked) onBuild();
-              }}
-              aria-disabled={buildBlocked}
-              aria-label="Build visual changes with Codex"
-            >
-              <span className={`size-[6px] shrink-0 rounded-full ${buildIndicatorClass(buildIndicator)}`} aria-hidden="true" />
-              Build
-            </Button>
-          </Hint>
+          <div className="flex items-center">
+            <Hint content={!isDesktop ? "Open Formia in the desktop app to enable Build" : buildIndicator === "unavailable" || buildIndicator === "checking" ? codexAvailability.message : !projectPath ? "Select a project from the desktop app to enable Build" : buildIndicator === "up-to-date" ? buildIndicatorLabel(buildIndicator) : "Send staged visual changes to Codex"}>
+              <Button
+                type="button"
+                size="lg"
+                className={`rounded-r-none border-r border-primary-foreground/20 pl-4 font-normal ${buildBlocked ? "cursor-not-allowed" : ""}`}
+                onClick={() => {
+                  if (!buildBlocked) onBuild();
+                }}
+                aria-disabled={buildBlocked}
+                aria-label="Build visual changes with Codex"
+              >
+                <span className={`size-[6px] shrink-0 rounded-full ${buildIndicatorClass(buildIndicator)}`} aria-hidden="true" />
+                Build
+              </Button>
+            </Hint>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" size="lg" className="w-9 rounded-l-none px-0" aria-label="Build options">
+                  <CaretDownIcon className="size-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-44">
+                <DropdownMenuItem disabled={!isDesktop || !projectPath || projectServerStatus.state === "starting"} onSelect={onRestartServer}>
+                  <ArrowClockwiseIcon />
+                  Restart server
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={!canRefreshApp} onSelect={onRefreshApp}>
+                  <ArrowCounterClockwiseIcon />
+                  Refresh app
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </header>
 
@@ -2000,7 +2146,10 @@ export function ProjectWorkspace({
   const [inspectMode, setInspectMode] = useState(false);
   const [selection, setSelection] = useState<SelectedElement | null>(null);
   const [layerTree, setLayerTree] = useState<LayerNode[]>([]);
-  const [canvasBackground, setCanvasBackground] = useState("#f9f9f9");
+  const [canvasBackground, setCanvasBackground] = useState("#ffffff");
+  const [sidebarsVisible, setSidebarsVisible] = useState(true);
+  const [canGoBack, setCanGoBack] = useState(false);
+  const [canGoForward, setCanGoForward] = useState(false);
   const [artboardHeight, setArtboardHeight] = useState(minimumArtboardHeight);
   const [codexStatus, setCodexStatus] = useState<CodexStatus>({ state: "idle", message: "" });
   const [projectServerStatus, setProjectServerStatus] = useState<ProjectServerStatus>({ state: "stopped", message: "" });
@@ -2053,6 +2202,8 @@ export function ProjectWorkspace({
 
     host.replaceChildren();
     webviewRef.current = null;
+    setCanGoBack(false);
+    setCanGoForward(false);
     if (!active || !isDesktop || !canvasUrl || !window.formiaDesktop) return;
 
     const webview = document.createElement("webview") as FormiaWebviewElement;
@@ -2068,6 +2219,10 @@ export function ProjectWorkspace({
     const remeasureArtboardHeight = () => {
       resetArtboardHeight();
       requestAnimationFrame(() => webview.send("formia:measure-page-height"));
+    };
+    const syncNavigationState = () => {
+      setCanGoBack(webview.canGoBack());
+      setCanGoForward(webview.canGoForward());
     };
     const receiveSelection = (event: Event) => {
       const message = event as FormiaWebviewEvent;
@@ -2097,8 +2252,11 @@ export function ProjectWorkspace({
     };
 
     webview.addEventListener("did-finish-load", syncInspectMode);
+    webview.addEventListener("did-finish-load", syncNavigationState);
     webview.addEventListener("did-start-loading", resetArtboardHeight);
+    webview.addEventListener("did-navigate", syncNavigationState);
     webview.addEventListener("did-navigate-in-page", remeasureArtboardHeight);
+    webview.addEventListener("did-navigate-in-page", syncNavigationState);
     webview.addEventListener("ipc-message", receiveSelection);
     host.appendChild(webview);
     webviewRef.current = webview;
@@ -2106,8 +2264,11 @@ export function ProjectWorkspace({
 
     return () => {
       webview.removeEventListener("did-finish-load", syncInspectMode);
+      webview.removeEventListener("did-finish-load", syncNavigationState);
       webview.removeEventListener("did-start-loading", resetArtboardHeight);
+      webview.removeEventListener("did-navigate", syncNavigationState);
       webview.removeEventListener("did-navigate-in-page", remeasureArtboardHeight);
+      webview.removeEventListener("did-navigate-in-page", syncNavigationState);
       webview.removeEventListener("ipc-message", receiveSelection);
       if (webviewRef.current === webview) webviewRef.current = null;
       webview.remove();
@@ -2332,6 +2493,17 @@ export function ProjectWorkspace({
     sendCanvasMessage("formia:get-layer-tree");
   }
 
+  function refreshApp() {
+    setSelection(null);
+    setLayerTree([]);
+    setArtboardHeight(minimumArtboardHeight);
+    if (webviewRef.current) {
+      webviewRef.current.reload();
+      return;
+    }
+    if (canvasUrl) setCanvasKey((key) => key + 1);
+  }
+
   function selectLayer(selectionId: string) {
     sendCanvasMessage("formia:select-layer", selectionId);
   }
@@ -2383,20 +2555,68 @@ export function ProjectWorkspace({
     onBack();
   }
 
+  async function restartProjectServer() {
+    if (!projectPath || !window.formiaDesktop) return;
+
+    setSelection(null);
+    setLayerTree([]);
+    try {
+      await window.formiaDesktop.restartProjectServer();
+    } catch (error) {
+      setProjectServerStatus({
+        state: "failed",
+        message: error instanceof Error ? error.message : "Could not restart the project server.",
+      });
+    }
+  }
+
+  function navigateBack() {
+    const webview = webviewRef.current;
+    if (webview?.canGoBack()) {
+      webview.goBack();
+      return;
+    }
+    goBack();
+  }
+
+  function navigateForward() {
+    const webview = webviewRef.current;
+    if (!webview?.canGoForward()) return;
+    webview.goForward();
+  }
+
   return (
-    <main className={active ? "relative flex h-screen overflow-hidden bg-muted/50" : "hidden"}>
-      <LayerPanel
-        isDesktop={isDesktop}
-        canvasUrl={canvasUrl}
-        layerTree={layerTree}
-        selection={selection}
-        onBack={goBack}
-        onRefresh={refreshLayers}
-        onSelectLayer={selectLayer}
-        onHighlightLayer={highlightLayer}
-        onClearLayerHighlight={clearLayerHighlight}
-        onMoveLayer={moveLayer}
+    <main className={active ? "relative flex h-screen flex-col overflow-hidden bg-white" : "hidden"}>
+      <WorkspaceTopbar
+        sidebarsVisible={sidebarsVisible}
+        canGoBack={Boolean(canvasUrl) || canGoBack}
+        canGoForward={canGoForward}
+        onToggleSidebars={() => setSidebarsVisible((visible) => !visible)}
+        onBack={navigateBack}
+        onForward={navigateForward}
+        onBackToProjects={goBack}
+        onResetPreview={resetPreview}
+        onFitCanvas={fitCanvas}
       />
+      <div className="min-h-0 flex flex-1">
+        <LayerPanel
+          className={sidebarsVisible ? "" : "hidden"}
+          isDesktop={isDesktop}
+          canvasUrl={canvasUrl}
+          layerTree={layerTree}
+          selection={selection}
+          onRefresh={refreshLayers}
+          onSelectLayer={selectLayer}
+          onHighlightLayer={highlightLayer}
+          onClearLayerHighlight={clearLayerHighlight}
+          onMoveLayer={moveLayer}
+        />
+        <WorkspaceToolbar
+          className={sidebarsVisible ? "" : "hidden"}
+          inspectMode={inspectMode}
+          isDesktop={isDesktop}
+          onToggleInspect={() => setInspectMode((enabled) => !enabled)}
+        />
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="min-h-0 flex-1">
           <div
@@ -2494,16 +2714,18 @@ export function ProjectWorkspace({
             </div>
 
       <PropertiesSidebar
+        className={sidebarsVisible ? "" : "hidden"}
         selection={selection}
         projectPath={projectPath}
-        inspectMode={inspectMode}
         isDesktop={isDesktop}
         codexAvailability={codexAvailability}
         codexStatus={codexStatus}
         projectServerStatus={projectServerStatus}
         canvasBackground={canvasBackground}
-        onToggleInspect={() => setInspectMode((enabled) => !enabled)}
+        canRefreshApp={Boolean(canvasUrl)}
         onBuild={() => void buildWithCodex()}
+        onRestartServer={() => void restartProjectServer()}
+        onRefreshApp={refreshApp}
         onCanvasBackgroundChange={setCanvasBackground}
         onApplyStyle={(property, value) => sendCanvasMessage("formia:apply-style", { property, value })}
         onResetStyle={(property) => sendCanvasMessage("formia:reset-style", property)}
@@ -2511,6 +2733,7 @@ export function ProjectWorkspace({
         onResetText={() => sendCanvasMessage("formia:reset-text")}
         onResetAll={resetPreview}
       />
+      </div>
     </main>
   );
 }
