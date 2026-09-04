@@ -132,6 +132,11 @@
     @apply bg-white text-foreground;
     background-color: #ffffff;
   }
+  html,
+  body,
+  body * {
+    cursor: var(--formia-cursor);
+  }
   html {
     @apply font-sans;
     background-color: #ffffff;

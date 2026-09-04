@@ -1,10 +1,9 @@
 "use client";
 
 import { type ChangeEvent, type InputHTMLAttributes, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, CircleNotchIcon, FolderOpenIcon, SidebarSimpleIcon, WarningCircleIcon, XIcon } from "@phosphor-icons/react";
+import { ArrowRightIcon, CircleNotchIcon, FolderOpenIcon, XIcon } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
-import { Hint } from "@/components/ui/tooltip";
 import { WindowControls } from "@/components/window-controls";
 
 const directoryInputProps = {
@@ -14,8 +13,6 @@ const directoryInputProps = {
 
 type Project = { name: string; path: string | null; url?: string | null; error?: string };
 type RecentProject = { name: string; path: string };
-type CodexAvailability = { state: "checking" | "available" | "unavailable"; message: string };
-
 const recentProjectsKey = "formia:recent-projects";
 const recentProjectsEvent = "formia:recent-projects-changed";
 const emptyRecentProjects: RecentProject[] = [];
@@ -74,7 +71,7 @@ function removeRecentProject(projectPath: string) {
   window.dispatchEvent(new Event(recentProjectsEvent));
 }
 
-export function ProjectSelector({ codexAvailability, onOpen }: { codexAvailability: CodexAvailability; onOpen: (project: Project) => void }) {
+export function ProjectSelector({ onOpen }: { onOpen: (project: Project) => void }) {
   const directoryInputRef = useRef<HTMLInputElement>(null);
   const recentProjects = useSyncExternalStore(subscribeToRecentProjects, readRecentProjects, () => emptyRecentProjects);
   const [openingPath, setOpeningPath] = useState<string | null>(null);
@@ -117,25 +114,7 @@ export function ProjectSelector({ codexAvailability, onOpen }: { codexAvailabili
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <header className="formia-titlebar flex h-10 shrink-0 items-center border-b border-border bg-white px-2">
-        <div className="flex items-center gap-0.5">
-          <Button type="button" variant="ghost" size="icon-sm" className="formia-no-drag rounded-[5px]" disabled aria-label="Show sidebars">
-            <SidebarSimpleIcon className="size-4" />
-          </Button>
-          <Button type="button" variant="ghost" size="icon-sm" className="formia-no-drag rounded-[5px]" disabled aria-label="Back">
-            <ArrowLeftIcon className="size-4" />
-          </Button>
-          <Button type="button" variant="ghost" size="icon-sm" className="formia-no-drag rounded-[5px]" disabled aria-label="Forward">
-            <ArrowRightIcon className="size-4" />
-          </Button>
-        </div>
-        <div className="mx-2 h-5 w-px bg-border" />
-        <nav className="flex items-center gap-0.5 text-[13px]" aria-label="Application menu">
-          <span className="rounded-[5px] px-2 py-1">File</span>
-          <span className="rounded-[5px] px-2 py-1">Edit</span>
-          <span className="rounded-[5px] px-2 py-1">View</span>
-          <span className="rounded-[5px] px-2 py-1">Help</span>
-        </nav>
+      <header className="formia-titlebar flex h-10 shrink-0 border-b border-border bg-white">
         <WindowControls />
       </header>
       <input
@@ -146,44 +125,40 @@ export function ProjectSelector({ codexAvailability, onOpen }: { codexAvailabili
         onChange={openProject}
         {...directoryInputProps}
       />
-      <div className="flex min-h-[calc(100vh-2.5rem)]">
-        <aside className="hidden w-64 shrink-0 flex-col border-r border-border bg-sidebar p-3 md:flex">
-          <div className="flex h-9 items-center px-2">
-            <span className="text-sm font-semibold tracking-tight">Formia</span>
+      <section className="flex min-h-[calc(100vh-2.5rem)] items-center justify-center px-6 py-12" aria-labelledby="recent-projects-heading">
+        <div className="w-full max-w-xl">
+          <div className="flex items-center justify-between gap-4">
+            <h1 id="recent-projects-heading" className="text-xl font-medium tracking-tight">Recent projects</h1>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                if (window.formiaDesktop) void selectProject();
+                else directoryInputRef.current?.click();
+              }}
+            >
+              <FolderOpenIcon />
+              Open project
+            </Button>
           </div>
 
-          <Button
-            type="button"
-            variant="secondary"
-            size="lg"
-            className="mt-3 w-full justify-start"
-            onClick={() => {
-              if (window.formiaDesktop) void selectProject();
-              else directoryInputRef.current?.click();
-            }}
-          >
-            <FolderOpenIcon className="size-4 text-[#8f8f8f]" />
-            Open project
-          </Button>
-
-          <section className="mt-8" aria-labelledby="recent-projects-heading">
-            <p id="recent-projects-heading" className="px-2 text-xs font-medium text-muted-foreground">Recent projects</p>
-            <div className="mt-2 space-y-0.5">
-              {recentProjects.length > 0 ? recentProjects.map((project) => {
+          {recentProjects.length > 0 ? (
+            <div className="mt-4 overflow-hidden rounded-xl border border-border">
+              {recentProjects.map((project, index) => {
                 const isOpening = openingPath === project.path;
                 const error = recentError?.path === project.path ? recentError.message : null;
                 return (
-                  <div key={project.path} className="group">
-                    <div className="flex items-center gap-1">
+                  <div key={project.path} className={index > 0 ? "border-t border-border" : undefined}>
+                    <div className="group flex items-center gap-1 px-2">
                       <button
                         type="button"
-                        className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-[10px] px-2.5 text-left text-sm font-normal outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
+                        className="flex min-h-12 min-w-0 flex-1 items-center gap-3 rounded-lg px-2 text-left text-sm outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
                         disabled={Boolean(openingPath)}
                         onClick={() => void openRecentProject(project)}
                       >
-                        <FolderOpenIcon className="size-4 shrink-0 text-[#8f8f8f]" />
+                        <FolderOpenIcon className="size-4 shrink-0 text-muted-foreground" />
                         <span className="min-w-0 flex-1 truncate">{project.name}</span>
-                        {isOpening ? <CircleNotchIcon className="size-4 shrink-0 animate-spin text-[#8f8f8f]" /> : <ArrowRightIcon className="size-4 shrink-0 text-[#8f8f8f] opacity-0 transition-opacity group-hover:opacity-100" />}
+                        {isOpening ? <CircleNotchIcon className="size-4 shrink-0 animate-spin text-muted-foreground" /> : <ArrowRightIcon className="size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />}
                       </button>
                       <Button
                         aria-label={`Remove ${project.name} from recent projects`}
@@ -195,47 +170,14 @@ export function ProjectSelector({ codexAvailability, onOpen }: { codexAvailabili
                         <XIcon />
                       </Button>
                     </div>
-                    {error ? <Hint content={error}><p className="truncate px-2.5 pb-1 text-xs text-destructive">{error}</p></Hint> : null}
+                    {error ? <p className="truncate px-4 pb-2 text-xs text-destructive">{error}</p> : null}
                   </div>
                 );
-              }) : (
-                <p className="px-2.5 text-xs leading-5 text-muted-foreground">No recent projects</p>
-              )}
+              })}
             </div>
-          </section>
-
-          <div className="mt-auto border-t border-border px-2 pt-3">
-            <p className="text-xs font-medium">Local workspace</p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">Inspect and edit projects on this device.</p>
-          </div>
-        </aside>
-
-        <section className="flex min-w-0 flex-1 items-center justify-center px-6 py-12" aria-labelledby="open-project-heading">
-          <div className="w-full max-w-xl">
-            <div className="mb-10">
-              <div className="mb-4 flex items-center gap-2 text-sm font-medium text-muted-foreground md:hidden">
-                <span className="size-2 rounded-full bg-foreground" />
-                Formia
-              </div>
-              <h1 id="open-project-heading" className="text-2xl font-normal tracking-tight">Open a project</h1>
-              <p className="mt-2 text-sm text-muted-foreground">Choose a local React project to inspect and edit visually.</p>
-              <Button className="mt-6" size="lg" onClick={() => {
-                if (window.formiaDesktop) void selectProject();
-                else directoryInputRef.current?.click();
-              }}>
-                <FolderOpenIcon />
-                Select project
-              </Button>
-              <p className={`mt-4 flex items-center gap-1.5 text-xs ${codexAvailability.state === "unavailable" ? "text-destructive" : "text-muted-foreground"}`} role="status">
-                {codexAvailability.state === "checking" ? <CircleNotchIcon className="size-3.5 animate-spin" /> : null}
-                {codexAvailability.state === "available" ? <CheckIcon className="size-3.5 text-emerald-600" /> : null}
-                {codexAvailability.state === "unavailable" ? <WarningCircleIcon className="size-3.5" /> : null}
-                <span>{codexAvailability.message}</span>
-              </p>
-            </div>
-          </div>
-        </section>
-      </div>
+          ) : null}
+        </div>
+      </section>
     </main>
   );
 }

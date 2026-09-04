@@ -65,9 +65,10 @@ window.addEventListener("popstate", () => {
   scheduleLayerTreeUpdate();
 });
 
-let inspectMode = false;
+let activeTool = "interact";
 let hoveredElement = null;
 let selectedElement = null;
+let textEditingState = null;
 let selectionSequence = 0;
 let layerTreeObserver = null;
 let layerTreeTimer = null;
@@ -149,6 +150,28 @@ let layerPointerDrag = null;
 let suppressNextClick = false;
 let canvasDropTarget = null;
 
+const toolCursorPaths = {
+  interact: "M220.49,207.8,207.8,220.49a12,12,0,0,1-17,0l-56.57-56.57L115,214.08l-.13.33A15.84,15.84,0,0,1,100.26,224l-.78,0a15.82,15.82,0,0,1-14.41-11L32.8,52.92A15.95,15.95,0,0,1,52.92,32.8L213,85.07a16,16,0,0,1,1.41,29.8l-.33.13-50.16,19.27,56.57,56.56A12,12,0,0,1,220.49,207.8Z",
+  select: "M248,121.58a15.76,15.76,0,0,1-11.29,15l-.2.06-78,21.84-21.84,78-.06.2a15.77,15.77,0,0,1-15,11.29h-.3a15.77,15.77,0,0,1-15.07-10.67L41,61.41a1,1,0,0,1-.05-.16A16,16,0,0,1,61.25,40.9l.16.05,175.92,65.26A15.78,15.78,0,0,1,248,121.58Z",
+  text: "M184,208a8,8,0,0,1-8,8H160a40,40,0,0,1-32-16,40,40,0,0,1-32,16H80a8,8,0,0,1,0-16H96a24,24,0,0,0,24-24V136H104a8,8,0,0,1,0-16h16V80A24,24,0,0,0,96,56H80a8,8,0,0,1,0-16H96a40,40,0,0,1,32,16,40,40,0,0,1,32-16h16a8,8,0,0,1,0,16H160a24,24,0,0,0-24,24v40h16a8,8,0,0,1,0,16H136v40a24,24,0,0,0,24,24h16A8,8,0,0,1,184,208Z",
+};
+
+const cursorStyle = document.createElement("style");
+
+function cursorForTool(tool) {
+  const hotspot = tool === "text" ? "8 8" : "2 2";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 256 256"><path fill="#0d0d0d" d="${toolCursorPaths[tool]}"/></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${hotspot}, auto`;
+}
+
+function installCursorStyle() {
+  cursorStyle.textContent = `html, body, body * { cursor: ${cursorForTool(activeTool)} !important; }`;
+  if (!cursorStyle.isConnected && document.documentElement) document.documentElement.appendChild(cursorStyle);
+}
+
+installCursorStyle();
+if (!cursorStyle.isConnected) document.addEventListener("DOMContentLoaded", installCursorStyle, { once: true });
+
 const overlay = document.createElement("div");
 Object.assign(overlay.style, {
   position: "fixed",
@@ -157,6 +180,16 @@ Object.assign(overlay.style, {
   zIndex: "2147483647",
   border: "2px solid #2563eb",
   background: "rgba(37, 99, 235, 0.08)",
+});
+
+const hoverOverlay = document.createElement("div");
+Object.assign(hoverOverlay.style, {
+  position: "fixed",
+  display: "none",
+  pointerEvents: "none",
+  zIndex: "2147483646",
+  border: "1px solid rgba(37, 99, 235, 0.38)",
+  background: "rgba(37, 99, 235, 0.025)",
 });
 
 const dropIndicator = document.createElement("div");
@@ -211,6 +244,9 @@ function ensureOverlay() {
   if (!overlay.isConnected && document.documentElement) {
     document.documentElement.appendChild(overlay);
   }
+  if (!hoverOverlay.isConnected && document.documentElement) {
+    document.documentElement.appendChild(hoverOverlay);
+  }
   if (!dropIndicator.isConnected && document.documentElement) {
     document.documentElement.appendChild(dropIndicator);
   }
@@ -231,8 +267,25 @@ function moveOverlay(element) {
   });
 }
 
+function moveHoverOverlay(element) {
+  ensureOverlay();
+  const rect = element.getBoundingClientRect();
+  Object.assign(hoverOverlay.style, {
+    display: "block",
+    left: `${rect.left}px`,
+    top: `${rect.top}px`,
+    width: `${rect.width}px`,
+    height: `${rect.height}px`,
+  });
+}
+
+function hideHoverOverlay() {
+  hoverOverlay.style.display = "none";
+}
+
 function hideOverlay() {
   overlay.style.display = "none";
+  hideHoverOverlay();
   hoveredElement = null;
 }
 
@@ -297,8 +350,63 @@ function rememberInlineStyle(element, cssName) {
   return snapshot;
 }
 
+function isTextEditable(element) {
+  return element instanceof Element && !isDocumentSurface(element) && element.children.length === 0 && Boolean((element.textContent || "").trim());
+}
+
+function handleTextInput(event) {
+  const element = event.currentTarget;
+  if (!(element instanceof Element)) return;
+  const snapshot = snapshotFor(element);
+  if (snapshot.html === undefined) snapshot.html = element.innerHTML;
+  sendUpdatedSelection();
+}
+
+function finishTextEditing() {
+  if (!textEditingState) return;
+
+  const { element, contentEditable, spellcheck } = textEditingState;
+  element.removeEventListener("input", handleTextInput);
+  if (contentEditable === null) element.removeAttribute("contenteditable");
+  else element.setAttribute("contenteditable", contentEditable);
+  if (spellcheck === null) element.removeAttribute("spellcheck");
+  else element.setAttribute("spellcheck", spellcheck);
+  textEditingState = null;
+}
+
+function beginTextEditing(element) {
+  if (!isTextEditable(element)) return false;
+  if (textEditingState?.element === element) {
+    element.focus();
+    return true;
+  }
+
+  finishTextEditing();
+  const snapshot = snapshotFor(element);
+  if (snapshot.html === undefined) snapshot.html = element.innerHTML;
+  textEditingState = {
+    element,
+    contentEditable: element.getAttribute("contenteditable"),
+    spellcheck: element.getAttribute("spellcheck"),
+  };
+  element.setAttribute("contenteditable", "true");
+  element.setAttribute("spellcheck", "false");
+  element.addEventListener("input", handleTextInput);
+  element.focus();
+
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  range.collapse(false);
+  const browserSelection = window.getSelection();
+  browserSelection?.removeAllRanges();
+  browserSelection?.addRange(range);
+  return true;
+}
+
 function selectElement(element) {
+  if (textEditingState?.element !== element) finishTextEditing();
   selectedElement = element;
+  hideHoverOverlay();
   ensureLayerSelectionId(selectedElement);
 }
 
@@ -313,6 +421,7 @@ function ensureLayerSelectionId(element) {
 }
 
 function clearSelection() {
+  finishTextEditing();
   selectedElement = null;
   hideOverlay();
   ipcRenderer.sendToHost("formia:selection-cleared");
@@ -522,6 +631,7 @@ function resetClassName() {
 function applyText(value) {
   if (!selectedElement || typeof value !== "string" || selectedElement.children.length > 0) return;
 
+  finishTextEditing();
   const snapshot = snapshotFor(selectedElement);
   if (snapshot.html === undefined) snapshot.html = selectedElement.innerHTML;
   selectedElement.textContent = value;
@@ -531,6 +641,7 @@ function applyText(value) {
 function resetText() {
   if (!selectedElement) return;
 
+  finishTextEditing();
   const snapshot = elementSnapshots.get(selectedElement);
   if (!snapshot || snapshot.html === undefined) return;
 
@@ -540,6 +651,7 @@ function resetText() {
 }
 
 function resetAllOverrides() {
+  finishTextEditing();
   restoreStructuralOverrides();
 
   for (const element of touchedElements) {
@@ -569,10 +681,10 @@ function resetAllOverrides() {
 }
 
 function inspectAtPoint(x, y) {
-  if (!inspectMode || !Number.isFinite(x) || !Number.isFinite(y)) return;
+  if (activeTool !== "select" || !Number.isFinite(x) || !Number.isFinite(y)) return;
 
   const element = document.elementFromPoint(x, y);
-  if (!(element instanceof Element) || element === overlay) return;
+  if (!(element instanceof Element) || element === overlay || element === hoverOverlay) return;
   if (isSelectionBackground(element)) {
     clearSelection();
     return;
@@ -674,10 +786,17 @@ function highlightLayer(selectionId) {
   const element = findLayerElement(selectionId);
   if (!(element instanceof Element)) return;
   hoveredElement = element;
-  moveOverlay(element);
+  if (element === selectedElement) {
+    hideHoverOverlay();
+    moveOverlay(element);
+  } else {
+    moveHoverOverlay(element);
+  }
 }
 
 function clearLayerHighlight() {
+  hoveredElement = null;
+  hideHoverOverlay();
   if (selectedElement) moveOverlay(selectedElement);
   else hideOverlay();
 }
@@ -688,6 +807,7 @@ function selectLayer(selectionId) {
   moveOverlay(element);
   selectElement(element);
   ipcRenderer.sendToHost("formia:element-selected", selectionPayload(element));
+  if (activeTool === "text") beginTextEditing(element);
 }
 
 function findCanvasDropTarget(x, y, source) {
@@ -706,7 +826,7 @@ function findCanvasDropTarget(x, y, source) {
 }
 
 function beginCanvasLayerDrag(event) {
-  if (!inspectMode || event.button !== 0 || layerPointerDrag) return;
+  if (activeTool !== "select" || event.button !== 0 || layerPointerDrag) return;
   const element = event.target;
   if (!(element instanceof Element) || element === overlay || isDocumentSurface(element) || layerTreeExcludedTags.has(element.tagName)) return;
 
@@ -997,11 +1117,16 @@ window.addEventListener(
 window.addEventListener(
   "mousemove",
   (event) => {
-    if (!inspectMode) return;
+    if (activeTool !== "select") return;
     const element = event.target;
-    if (!(element instanceof Element) || element === overlay || element === hoveredElement) return;
+    if (!(element instanceof Element) || element === overlay || element === hoverOverlay || element === hoveredElement) return;
     hoveredElement = element;
-    moveOverlay(element);
+    if (element === selectedElement) {
+      hideHoverOverlay();
+      moveOverlay(element);
+    } else {
+      moveHoverOverlay(element);
+    }
   },
   true,
 );
@@ -1015,13 +1140,22 @@ window.addEventListener(
       event.stopImmediatePropagation();
       return;
     }
-    if (!inspectMode) return;
+    if (activeTool === "interact") return;
     const element = event.target;
-    if (!(element instanceof Element) || element === overlay) return;
+    if (!(element instanceof Element) || element === overlay || element === hoverOverlay) return;
+    if (textEditingState?.element === element) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     if (isSelectionBackground(element)) {
       clearSelection();
+      return;
+    }
+    if (activeTool === "text") {
+      if (!isTextEditable(element)) return;
+      moveOverlay(element);
+      selectElement(element);
+      ipcRenderer.sendToHost("formia:element-selected", selectionPayload(element));
+      beginTextEditing(element);
       return;
     }
     moveOverlay(element);
@@ -1048,9 +1182,23 @@ window.addEventListener(
   { capture: true, passive: false },
 );
 
-ipcRenderer.on("formia:set-inspect-mode", (_event, enabled) => {
-  inspectMode = Boolean(enabled);
-  if (!inspectMode) {
+ipcRenderer.on("formia:set-tool", (_event, tool) => {
+  if (!["interact", "select", "text"].includes(tool)) return;
+  activeTool = tool;
+  installCursorStyle();
+  if (activeTool === "select") {
+    finishTextEditing();
+    if (selectedElement) moveOverlay(selectedElement);
+  } else if (activeTool === "text") {
+    hideHoverOverlay();
+    if (selectedElement && isTextEditable(selectedElement)) {
+      moveOverlay(selectedElement);
+      beginTextEditing(selectedElement);
+    } else {
+      hideOverlay();
+    }
+  } else {
+    finishTextEditing();
     layerPointerDrag = null;
     suppressNextClick = false;
     hideDropIndicator();
