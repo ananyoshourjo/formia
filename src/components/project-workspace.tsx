@@ -1,7 +1,7 @@
 "use client";
 
-import { createElement, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { AlignBottomIcon, AlignLeftIcon, AngleIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowRightIcon, ArrowsInLineVerticalIcon, ArrowsOutIcon, ArrowsOutLineVerticalIcon, BrowserIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CircleIcon, CircleNotchIcon, ClipboardTextIcon, ColumnsIcon, CompassIcon, CursorIcon, DotIcon, DotsNineIcon, FlipHorizontalIcon, FlipVerticalIcon, FrameCornersIcon, GridFourIcon, HandGrabbingIcon, ImageIcon, LinkSimpleIcon, LinkSimpleHorizontalIcon, ListBulletsIcon, ListDashesIcon, ListNumbersIcon, MinusIcon, ParagraphIcon, PathIcon, PlusIcon, QuestionIcon, RectangleIcon, RowsIcon, ShapesIcon, SidebarIcon, SidebarSimpleIcon, SplitHorizontalIcon, SquareIcon, StackIcon, StackSimpleIcon, TableIcon, TextHIcon, TextboxIcon, VideoCameraIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { createElement, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { AlignBottomIcon, AlignLeftIcon, AngleIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowRightIcon, ArrowsInLineVerticalIcon, ArrowsOutIcon, ArrowsOutLineVerticalIcon, BrowserIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CircleIcon, CircleNotchIcon, ClipboardTextIcon, ColumnsIcon, CompassIcon, CursorIcon, CursorTextIcon, DotIcon, DotsNineIcon, FlipHorizontalIcon, FlipVerticalIcon, FrameCornersIcon, GridFourIcon, HandGrabbingIcon, ImageIcon, LinkSimpleIcon, LinkSimpleHorizontalIcon, ListBulletsIcon, ListDashesIcon, ListNumbersIcon, MinusIcon, NavigationArrowIcon, ParagraphIcon, PathIcon, PlusIcon, QuestionIcon, RectangleIcon, RowsIcon, ShapesIcon, SidebarIcon, SidebarSimpleIcon, SplitHorizontalIcon, SquareIcon, StackIcon, StackSimpleIcon, TableIcon, TextHIcon, TextboxIcon, VideoCameraIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
 import { AlignBottomFilled, AlignHorizontalCenterFilled, AlignLeft2Filled, AlignRight2Filled, AlignTopFilled, Columns3Filled } from "@mingcute/react/core-filled";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
@@ -25,6 +25,7 @@ import { ColorPicker } from "@/components/ui/color-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Hint } from "@/components/ui/tooltip";
 import { WindowControls } from "@/components/window-controls";
+import { toolCursor, type ToolName } from "@/lib/tool-cursors";
 
 type SelectedElement = {
   selectionId: string | null;
@@ -68,6 +69,12 @@ type LayerDropTarget = {
   parentId: string | null;
   beforeSelectionId: string | null;
 };
+
+const workspaceTools: Array<{ name: ToolName; label: string; icon: typeof CursorIcon; weight: "fill" | "regular" }> = [
+  { name: "interact", label: "Interact", icon: CursorIcon, weight: "fill" },
+  { name: "select", label: "Select", icon: NavigationArrowIcon, weight: "fill" },
+  { name: "text", label: "Text", icon: CursorTextIcon, weight: "regular" },
+];
 
 type CodexStatus = {
   state: "idle" | "working" | "applied" | "failed";
@@ -1583,7 +1590,7 @@ function LayerRow({
     <div>
       {isBeforeTarget ? <div className="h-0.5 rounded-full bg-foreground" style={{ marginLeft: `${depth * 12 + 26}px` }} /> : null}
       <div
-        className={`group flex min-w-0 items-center gap-0.5 rounded-[5px] ${selected ? "bg-accent text-accent-foreground" : "hover:bg-muted/70"} ${isInsideTarget ? "ring-1 ring-foreground/30" : ""} ${draggedId === node.selectionId ? "opacity-40" : ""}`}
+        className={`group flex min-w-0 items-center gap-0.5 rounded-[5px] ${selected ? "bg-accent text-accent-foreground" : "hover:bg-muted/40"} ${isInsideTarget ? "ring-1 ring-foreground/30" : ""} ${draggedId === node.selectionId ? "opacity-40" : ""}`}
         style={{ paddingLeft: `${depth * 12 + 2}px` }}
         onMouseEnter={() => onHighlight(node.selectionId)}
         onMouseLeave={onClearHighlight}
@@ -1653,7 +1660,6 @@ function LayerPanel({
   canvasUrl,
   layerTree,
   selection,
-  onRefresh,
   onSelectLayer,
   onHighlightLayer,
   onClearLayerHighlight,
@@ -1664,18 +1670,19 @@ function LayerPanel({
   canvasUrl: string | null;
   layerTree: LayerNode[];
   selection: SelectedElement | null;
-  onRefresh: () => void;
   onSelectLayer: (selectionId: string) => void;
   onHighlightLayer: (selectionId: string) => void;
   onClearLayerHighlight: () => void;
   onMoveLayer: (payload: { sourceSelectionId: string; targetParentId: string | null; beforeSelectionId: string | null }) => void;
 }) {
-  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<LayerDropTarget | null>(null);
+  const collapsedIds = collectExpandableLayerIds(layerTree);
+  for (const selectionId of expandedIds) collapsedIds.delete(selectionId);
 
   function toggleLayer(selectionId: string) {
-    setCollapsedIds((current) => {
+    setExpandedIds((current) => {
       const next = new Set(current);
       if (next.has(selectionId)) next.delete(selectionId);
       else next.add(selectionId);
@@ -1684,11 +1691,11 @@ function LayerPanel({
   }
 
   function expandAllLayers() {
-    setCollapsedIds(new Set());
+    setExpandedIds(collectExpandableLayerIds(layerTree));
   }
 
   function collapseAllLayers() {
-    setCollapsedIds(collectExpandableLayerIds(layerTree));
+    setExpandedIds(new Set());
   }
 
   function getDropTarget(event: ReactDragEvent<HTMLDivElement>, node: LayerNode, parentId: string | null, nextSiblingId: string | null): LayerDropTarget | null {
@@ -1749,28 +1756,20 @@ function LayerPanel({
 
   return (
     <aside className={`flex h-full w-64 shrink-0 flex-col border-r border-border bg-white text-foreground ${className || ""}`}>
-      <header className="flex shrink-0 items-center gap-1 border-b border-border bg-background px-2 py-2.5">
-        <div className="min-w-0 flex-1 px-1">
-          <h2 className="text-[14px] leading-4 font-medium">Layers</h2>
-          <p className="mt-0.5 truncate text-[11px] leading-4 text-muted-foreground">Rendered structure</p>
-        </div>
-        <Hint content="Expand all layers">
-          <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" onClick={expandAllLayers} disabled={!isDesktop || !canvasUrl || layerTree.length === 0} aria-label="Expand all layers">
-            <ArrowsOutLineVerticalIcon />
-          </Button>
-        </Hint>
-        <Hint content="Collapse all layers">
-          <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" onClick={collapseAllLayers} disabled={!isDesktop || !canvasUrl || layerTree.length === 0} aria-label="Collapse all layers">
-            <ArrowsInLineVerticalIcon />
-          </Button>
-        </Hint>
-        <Hint content="Refresh layers">
-          <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" onClick={onRefresh} disabled={!isDesktop || !canvasUrl} aria-label="Refresh layers">
-            <ArrowClockwiseIcon />
-          </Button>
-        </Hint>
-      </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
+        <div className="flex items-center gap-2 px-1.5 pb-2">
+          <h2 className={`${inspectorHeadingClass} min-w-0 flex-1`}>Layers</h2>
+          <Hint content="Expand all layers">
+            <Button type="button" variant="ghost" size="icon-xs" className="size-4 shrink-0 rounded p-0 text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/10" onClick={expandAllLayers} disabled={!isDesktop || !canvasUrl || layerTree.length === 0} aria-label="Expand all layers">
+              <ArrowsOutLineVerticalIcon className="size-3" />
+            </Button>
+          </Hint>
+          <Hint content="Collapse all layers">
+            <Button type="button" variant="ghost" size="icon-xs" className="size-4 shrink-0 rounded p-0 text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/10" onClick={collapseAllLayers} disabled={!isDesktop || !canvasUrl || layerTree.length === 0} aria-label="Collapse all layers">
+              <ArrowsInLineVerticalIcon className="size-3" />
+            </Button>
+          </Hint>
+        </div>
         {!isDesktop ? (
           <div className="px-3 py-8 text-center text-xs leading-5 text-muted-foreground">Open Formia in the desktop app to inspect layers.</div>
         ) : !canvasUrl ? (
@@ -1801,12 +1800,11 @@ function LayerPanel({
               />
             ))}
             <div
-              className={`mt-2 rounded-[5px] border border-dashed px-2 py-1.5 text-center text-[11px] leading-4 text-muted-foreground ${dropTarget?.selectionId === null ? "border-foreground/50 bg-muted/60 text-foreground" : "border-border"}`}
+              aria-label="Drop at page root"
+              className={`mt-2 min-h-7 ${dropTarget?.selectionId === null ? "bg-muted/60" : ""}`}
               onDragOver={handleRootDragOver}
               onDrop={handleRootDrop}
-            >
-              Drop at page root
-            </div>
+            />
           </>
         )}
       </div>
@@ -1816,31 +1814,33 @@ function LayerPanel({
 
 function WorkspaceToolbar({
   className,
-  inspectMode,
+  activeTool,
   isDesktop,
-  onToggleInspect,
+  onSelectTool,
 }: {
   className?: string;
-  inspectMode: boolean;
+  activeTool: ToolName;
   isDesktop: boolean;
-  onToggleInspect: () => void;
+  onSelectTool: (tool: ToolName) => void;
 }) {
   return (
     <aside className={`flex h-full w-11 shrink-0 flex-col items-center border-r border-border bg-white pt-2 ${className || ""}`} aria-label="Workspace tools">
-      <Hint content={inspectMode ? "Stop inspecting" : "Inspect element"}>
-        <Button
-          type="button"
-          variant={inspectMode ? "default" : "ghost"}
-          size="icon-sm"
-          className="rounded-[5px]"
-          onClick={onToggleInspect}
-          disabled={!isDesktop}
-          aria-pressed={inspectMode}
-          aria-label={inspectMode ? "Stop inspecting" : "Inspect element"}
-        >
-          <CursorIcon />
-        </Button>
-      </Hint>
+      {workspaceTools.map(({ name, label, icon: Icon, weight }) => (
+        <Hint key={name} content={label}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className={`rounded-[5px] text-foreground hover:text-foreground ${activeTool === name ? "bg-accent hover:bg-accent" : ""}`}
+            onClick={() => onSelectTool(name)}
+            disabled={!isDesktop}
+            aria-pressed={activeTool === name}
+            aria-label={label}
+          >
+            <Icon weight={weight} />
+          </Button>
+        </Hint>
+      ))}
     </aside>
   );
 }
@@ -2101,16 +2101,16 @@ function PropertiesSidebar({
                   type="color"
                   value={canvasBackground}
                   onChange={(event) => onCanvasBackgroundChange(event.target.value)}
-                  className="h-7 w-full cursor-pointer rounded-[5px] border border-border bg-background p-1"
+                  className="h-7 w-full rounded-[5px] border border-border bg-background p-1"
                   aria-label="Canvas background color"
                 />
                 <span className={`${inspectorFieldClass} flex h-7 items-center font-mono text-[12px] uppercase`}>{canvasBackground}</span>
               </div>
             </section>
             <div className="flex min-h-64 flex-col items-center justify-center px-8 text-center">
-              <CursorIcon className="mb-3 size-6 text-muted-foreground" />
+              <NavigationArrowIcon className="mb-3 size-6 text-muted-foreground" weight="fill" />
               <p className="text-xs leading-5 text-muted-foreground">
-                Turn on Inspect, then click any visible element in the application.
+                Choose Select, then click any visible element in the application.
               </p>
             </div>
           </>
@@ -2143,7 +2143,7 @@ export function ProjectWorkspace({
   const isDesktop = useSyncExternalStore(subscribeToRuntime, getDesktopSnapshot, getDesktopServerSnapshot);
   const [canvasUrl, setCanvasUrl] = useState<string | null>(null);
   const [canvasKey, setCanvasKey] = useState(0);
-  const [inspectMode, setInspectMode] = useState(false);
+  const [activeTool, setActiveTool] = useState<ToolName>("interact");
   const [selection, setSelection] = useState<SelectedElement | null>(null);
   const [layerTree, setLayerTree] = useState<LayerNode[]>([]);
   const [canvasBackground, setCanvasBackground] = useState("#ffffff");
@@ -2167,6 +2167,7 @@ export function ProjectWorkspace({
   const zoomTargetRef = useRef(0.75);
   const panTargetRef = useRef({ x: 0, y: 0 });
   const viewportAnimationRef = useRef<number | null>(null);
+  const activeToolRef = useRef<ToolName>("interact");
   const handleWebviewWheelRef = useRef(handleWebviewWheel);
   handleWebviewWheelRef.current = handleWebviewWheel;
 
@@ -2211,8 +2212,8 @@ export function ProjectWorkspace({
     webview.setAttribute("preload", window.formiaDesktop.inspectorPreloadUrl);
     webview.setAttribute("partition", "persist:formia-canvas");
 
-    const syncInspectMode = () => {
-      webview.send("formia:set-inspect-mode", false);
+    const syncTool = () => {
+      webview.send("formia:set-tool", activeToolRef.current);
       webview.send("formia:get-layer-tree");
     };
     const resetArtboardHeight = () => updateArtboardHeight(minimumArtboardHeight);
@@ -2224,6 +2225,7 @@ export function ProjectWorkspace({
       setCanGoBack(webview.canGoBack());
       setCanGoForward(webview.canGoForward());
     };
+    const clearWebviewHover = () => webview.send("formia:clear-layer-highlight");
     const receiveSelection = (event: Event) => {
       const message = event as FormiaWebviewEvent;
       if (message.channel === "formia:canvas-wheel") {
@@ -2251,24 +2253,28 @@ export function ProjectWorkspace({
       }
     };
 
-    webview.addEventListener("did-finish-load", syncInspectMode);
+    webview.addEventListener("did-finish-load", syncTool);
     webview.addEventListener("did-finish-load", syncNavigationState);
     webview.addEventListener("did-start-loading", resetArtboardHeight);
     webview.addEventListener("did-navigate", syncNavigationState);
     webview.addEventListener("did-navigate-in-page", remeasureArtboardHeight);
     webview.addEventListener("did-navigate-in-page", syncNavigationState);
+    webview.addEventListener("mouseleave", clearWebviewHover);
+    host.addEventListener("mouseleave", clearWebviewHover);
     webview.addEventListener("ipc-message", receiveSelection);
     host.appendChild(webview);
     webviewRef.current = webview;
     webview.setAttribute("src", canvasUrl);
 
     return () => {
-      webview.removeEventListener("did-finish-load", syncInspectMode);
+      webview.removeEventListener("did-finish-load", syncTool);
       webview.removeEventListener("did-finish-load", syncNavigationState);
       webview.removeEventListener("did-start-loading", resetArtboardHeight);
       webview.removeEventListener("did-navigate", syncNavigationState);
       webview.removeEventListener("did-navigate-in-page", remeasureArtboardHeight);
       webview.removeEventListener("did-navigate-in-page", syncNavigationState);
+      webview.removeEventListener("mouseleave", clearWebviewHover);
+      host.removeEventListener("mouseleave", clearWebviewHover);
       webview.removeEventListener("ipc-message", receiveSelection);
       if (webviewRef.current === webview) webviewRef.current = null;
       webview.remove();
@@ -2318,8 +2324,9 @@ export function ProjectWorkspace({
   }, []);
 
   useEffect(() => {
-    webviewRef.current?.send("formia:set-inspect-mode", inspectMode);
-  }, [inspectMode]);
+    activeToolRef.current = activeTool;
+    webviewRef.current?.send("formia:set-tool", activeTool);
+  }, [activeTool]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -2489,8 +2496,10 @@ export function ProjectWorkspace({
     webviewRef.current?.send(channel, ...args);
   }
 
-  function refreshLayers() {
-    sendCanvasMessage("formia:get-layer-tree");
+  function selectTool(tool: ToolName) {
+    activeToolRef.current = tool;
+    setActiveTool(tool);
+    sendCanvasMessage("formia:set-tool", tool);
   }
 
   function refreshApp() {
@@ -2514,6 +2523,11 @@ export function ProjectWorkspace({
 
   function clearLayerHighlight() {
     sendCanvasMessage("formia:clear-layer-highlight");
+  }
+
+  function handleCanvasPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.target !== webviewRef.current) clearLayerHighlight();
+    movePan(event);
   }
 
   function moveLayer(payload: { sourceSelectionId: string; targetParentId: string | null; beforeSelectionId: string | null }) {
@@ -2586,7 +2600,10 @@ export function ProjectWorkspace({
   }
 
   return (
-    <main className={active ? "relative flex h-screen flex-col overflow-hidden bg-white" : "hidden"}>
+    <main
+      className={active ? "relative flex h-screen flex-col overflow-hidden bg-white" : "hidden"}
+      style={{ "--formia-cursor": toolCursor(activeTool) } as CSSProperties}
+    >
       <WorkspaceTopbar
         sidebarsVisible={sidebarsVisible}
         canGoBack={Boolean(canvasUrl) || canGoBack}
@@ -2605,23 +2622,22 @@ export function ProjectWorkspace({
           canvasUrl={canvasUrl}
           layerTree={layerTree}
           selection={selection}
-          onRefresh={refreshLayers}
           onSelectLayer={selectLayer}
           onHighlightLayer={highlightLayer}
           onClearLayerHighlight={clearLayerHighlight}
           onMoveLayer={moveLayer}
         />
-        <WorkspaceToolbar
-          className={sidebarsVisible ? "" : "hidden"}
-          inspectMode={inspectMode}
-          isDesktop={isDesktop}
-          onToggleInspect={() => setInspectMode((enabled) => !enabled)}
-        />
+          <WorkspaceToolbar
+           className={sidebarsVisible ? "" : "hidden"}
+           activeTool={activeTool}
+           isDesktop={isDesktop}
+           onSelectTool={selectTool}
+         />
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="min-h-0 flex-1">
           <div
             ref={canvasViewportRef}
-            className={`relative h-full w-full overflow-hidden touch-none ${isPanning || panMode ? "cursor-grabbing" : "cursor-default"}`}
+            className={`relative h-full w-full overflow-hidden touch-none ${isPanning || panMode ? "cursor-grabbing" : ""}`}
             style={{ backgroundColor: canvasBackground }}
             onWheel={handleCanvasWheel}
             onPointerDown={(event) => {
@@ -2629,7 +2645,8 @@ export function ProjectWorkspace({
               if (!clickedWebview) clearCanvasSelection();
               if (!clickedWebview || event.button === 1) beginPan(event);
             }}
-            onPointerMove={movePan}
+            onPointerMove={handleCanvasPointerMove}
+            onPointerLeave={clearLayerHighlight}
             onPointerUp={endPan}
             onPointerCancel={endPan}
           >
@@ -2638,23 +2655,26 @@ export function ProjectWorkspace({
               className="pointer-events-none absolute inset-0 opacity-50"
               style={{ backgroundImage: "linear-gradient(to right, color-mix(in oklch, var(--border) 40%, transparent) 1px, transparent 1px), linear-gradient(to bottom, color-mix(in oklch, var(--border) 40%, transparent) 1px, transparent 1px)", backgroundSize: "24px 24px" }}
             />
+            <div
+              className="absolute"
+              style={{
+                left: "50%",
+                top: "50%",
+                width: artboardWidth,
+                height: artboardHeight,
+                transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px)`,
+              }}
+            >
               <div
-                className="absolute"
-                style={{
-                  left: "50%",
-                  top: "50%",
-                  width: artboardWidth,
-                  height: artboardHeight,
-                  transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px)`,
-                }}
+                className="h-full w-full shadow-[0_2px_8px_rgba(0,0,0,0.04),0_4px_40px_rgba(0,0,0,0.05)] ring-1 ring-black/5"
+                style={{ transform: `scale(${zoom})`, transformOrigin: "center center" }}
               >
-                <div className="h-full w-full shadow-[0_2px_8px_rgba(0,0,0,0.04),0_4px_40px_rgba(0,0,0,0.05)] ring-1 ring-black/5" style={{ transform: `scale(${zoom})`, transformOrigin: "center center" }}>
-                  <div className="h-full w-full overflow-hidden bg-white">
-                    {active && isDesktop && window.formiaDesktop && canvasUrl ? (
-                      <div key={`${canvasUrl}-${canvasKey}`} ref={webviewHostRef} className="h-full w-full" />
-                    ) : canvasUrl ? (
-                      <iframe key={`${canvasUrl}-${canvasKey}`} src={canvasUrl} title={`${projectName} application canvas`} className="h-full w-full" />
-                    ) : (
+                <div className="h-full w-full overflow-hidden bg-white">
+                  {active && isDesktop && window.formiaDesktop && canvasUrl ? (
+                    <div key={`${canvasUrl}-${canvasKey}`} ref={webviewHostRef} className="h-full w-full" />
+                  ) : canvasUrl ? (
+                    <iframe key={`${canvasUrl}-${canvasKey}`} src={canvasUrl} title={`${projectName} application canvas`} className="h-full w-full" />
+                  ) : (
                     <div className="flex h-full w-full items-center justify-center bg-background px-10 text-center">
                       <div>
                         {projectServerStatus.state === "starting" ? <CircleNotchIcon className="mx-auto mb-3 size-5 animate-spin text-muted-foreground" /> : null}

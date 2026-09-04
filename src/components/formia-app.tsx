@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 
 import { ProjectSelector } from "@/components/project-selector";
 import { ProjectWorkspace } from "@/components/project-workspace";
+import { toolCursor } from "@/lib/tool-cursors";
 
 type CodexAvailability = {
   state: "checking" | "available" | "unavailable";
@@ -13,6 +14,13 @@ type CodexAvailability = {
 export function FormiaApp() {
   const [project, setProject] = useState<{ name: string; path: string | null; url?: string | null; error?: string } | null>(null);
   const [codexAvailability, setCodexAvailability] = useState<CodexAvailability>({ state: "checking", message: "Checking for Codex" });
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--formia-cursor", toolCursor("interact"));
+    return () => {
+      document.documentElement.style.removeProperty("--formia-cursor");
+    };
+  }, []);
 
   useEffect(() => {
     const desktop = window.formiaDesktop;
@@ -39,8 +47,8 @@ export function FormiaApp() {
   }, []);
 
   return (
-    <>
-      {project ? null : <ProjectSelector codexAvailability={codexAvailability} onOpen={setProject} />}
+    <div style={{ "--formia-cursor": toolCursor("interact") } as CSSProperties}>
+      {project ? null : <ProjectSelector onOpen={setProject} />}
       <ProjectWorkspace
         active={Boolean(project)}
         projectName={project?.name || "Project"}
@@ -48,6 +56,6 @@ export function FormiaApp() {
         codexAvailability={codexAvailability}
         onBack={() => setProject(null)}
       />
-    </>
+    </div>
   );
 }

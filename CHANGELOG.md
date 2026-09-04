@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.7.0] - 2026-09-04
+
+### Added
+
+- Added Interact, Select, and Text tools for switching between normal canvas use, element inspection, and inline text editing.
+- Added live hover feedback and text editing support for selected rendered elements.
+
+### Changed
+
+- Refined the canvas, Layers panel, and workspace tool presentation around the new editing modes.
+
 ## [0.6.0] - 2026-09-04
 
 ### Added
