@@ -51,7 +51,7 @@ function SelectTrigger({
     >
       {children}
       <SelectPrimitive.Icon asChild>
-        <CaretDownIcon className="pointer-events-none size-3.5 text-muted-foreground" />
+        <CaretDownIcon className="pointer-events-none size-3 text-muted-foreground" />
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   )
@@ -172,7 +172,7 @@ function SelectScrollDownButton({
       )}
       {...props}
     >
-      <CaretDownIcon className="size-3.5"
+      <CaretDownIcon className="size-3"
       />
     </SelectPrimitive.ScrollDownButton>
   )
