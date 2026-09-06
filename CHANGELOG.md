@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.8.0] - 2026-09-07
+
+### Added
+
+- Added contextual Flex and Grid layout controls, including display mode, direction, wrapping, alignment, spacing, and grid item placement.
+- Added dropdown-backed value selection for CSS sizing, spacing, stacking, and Grid placement controls.
+
+### Changed
+
+- Reorganized the Layout inspector with a compact alignment matrix and consistent labeled controls.
+- Refined the Properties panel controls, dropdowns, color fields, and canvas page settings for a more consistent editing workflow.
+
+### Fixed
+
+- Preserved authored CSS values such as `auto`, numeric sizing, gaps, and z-index values when inspecting and editing elements.
+
 ## [0.7.0] - 2026-09-04
 
 ### Added

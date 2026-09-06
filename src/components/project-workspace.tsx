@@ -1,9 +1,9 @@
 "use client";
 
 import { createElement, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { AlignBottomIcon, AlignLeftIcon, AngleIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowRightIcon, ArrowsInLineVerticalIcon, ArrowsOutIcon, ArrowsOutLineVerticalIcon, BrowserIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CircleIcon, CircleNotchIcon, ClipboardTextIcon, ColumnsIcon, CompassIcon, CursorIcon, CursorTextIcon, DotIcon, DotsNineIcon, FlipHorizontalIcon, FlipVerticalIcon, FrameCornersIcon, GridFourIcon, HandGrabbingIcon, ImageIcon, LinkSimpleIcon, LinkSimpleHorizontalIcon, ListBulletsIcon, ListDashesIcon, ListNumbersIcon, MinusIcon, NavigationArrowIcon, ParagraphIcon, PathIcon, PlusIcon, QuestionIcon, RectangleIcon, RowsIcon, ShapesIcon, SidebarIcon, SidebarSimpleIcon, SplitHorizontalIcon, SquareIcon, StackIcon, StackSimpleIcon, TableIcon, TextHIcon, TextboxIcon, VideoCameraIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { AlignBottomIcon, AlignCenterHorizontalSimpleIcon, AlignCenterVerticalIcon, AlignCenterVerticalSimpleIcon, AngleIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowRightIcon, ArrowsInLineVerticalIcon, ArrowsOutIcon, ArrowsOutLineHorizontalIcon, ArrowsOutLineVerticalIcon, BrowserIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CircleIcon, CircleNotchIcon, ClipboardTextIcon, ColumnsIcon, CompassIcon, CursorIcon, CursorTextIcon, DotIcon, DotsNineIcon, EraserIcon, EyeSlashIcon, FlipHorizontalIcon, FlipVerticalIcon, FrameCornersIcon, GridFourIcon, HandGrabbingIcon, ImageIcon, LinkSimpleIcon, LinkSimpleHorizontalIcon, ListBulletsIcon, ListDashesIcon, ListNumbersIcon, MinusIcon, NavigationArrowIcon, ParagraphIcon, PathIcon, PlusIcon, QuestionIcon, RectangleIcon, RowsIcon, ShapesIcon, SidebarIcon, SidebarSimpleIcon, SquareIcon, StackIcon, TableIcon, TerminalWindowIcon, TextHIcon, TextboxIcon, VideoCameraIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
-import { AlignBottomFilled, AlignHorizontalCenterFilled, AlignLeft2Filled, AlignRight2Filled, AlignTopFilled, Columns3Filled } from "@mingcute/react/core-filled";
+import { AlignBottomFilled, AlignHorizontalCenterFilled, AlignLeft2Filled, AlignRight2Filled, AlignTopFilled } from "@mingcute/react/core-filled";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import { AArrowUpIcon, CaseLowerIcon, CaseSensitiveIcon, CaseUpperIcon, FitToScreenIcon, MinusSignIcon, ParagraphSpacingIcon, TextAlignCenterIcon, TextAlignJustifyCenterIcon, TextAlignLeft01Icon, TextAlignLeftIcon, TextAlignRight01Icon, TextAlignRightIcon, TextStrikethroughIcon, TextUnderlineIcon, TextVariableFrontIcon, XLineTopIcon } from "@hugeicons/core-free-icons";
 
@@ -18,6 +18,9 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -70,10 +73,10 @@ type LayerDropTarget = {
   beforeSelectionId: string | null;
 };
 
-const workspaceTools: Array<{ name: ToolName; label: string; icon: typeof CursorIcon; weight: "fill" | "regular" }> = [
-  { name: "interact", label: "Interact", icon: CursorIcon, weight: "fill" },
-  { name: "select", label: "Select", icon: NavigationArrowIcon, weight: "fill" },
-  { name: "text", label: "Text", icon: CursorTextIcon, weight: "regular" },
+const workspaceTools: Array<{ name: ToolName; label: string; shortcut: string; icon: typeof CursorIcon; weight: "fill" | "regular" }> = [
+  { name: "interact", label: "Interact", shortcut: "I", icon: CursorIcon, weight: "fill" },
+  { name: "select", label: "Select", shortcut: "S", icon: NavigationArrowIcon, weight: "fill" },
+  { name: "text", label: "Text", shortcut: "T", icon: CursorTextIcon, weight: "regular" },
 ];
 
 type CodexStatus = {
@@ -102,6 +105,21 @@ type CanvasWheelInput = {
   clientY?: number;
 };
 
+type CanvasKeyboardInput = {
+  code: string;
+  key: string;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+  altKey: boolean;
+  repeat: boolean;
+  targetIsEditable: boolean;
+};
+
+type WorkspaceShortcutInput = CanvasKeyboardInput & {
+  preventDefault?: () => void;
+};
+
 const subscribeToRuntime = () => () => undefined;
 const getDesktopSnapshot = () => Boolean(window.formiaDesktop?.isDesktop);
 const getDesktopServerSnapshot = () => false;
@@ -112,6 +130,11 @@ const maxZoom = 4;
 
 function clampZoom(value: number) {
   return Math.min(maxZoom, Math.max(minZoom, value));
+}
+
+function isEditableKeyboardTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
 }
 
 const inspectorSectionClass = "border-b border-border px-3 py-2.5";
@@ -639,6 +662,54 @@ function CompactLayoutField({
   );
 }
 
+function GridPlacementField({ label, name, value, onCommit, onReset }: { label: string; name: string; value: string; onCommit: (value: string) => void; onReset: () => void }) {
+  const isAuto = value.trim() === "auto";
+  const isNumber = /^-?(?:\d+(?:\.\d*)?|\.\d+)$/.test(value.trim());
+  const selectedUnit = isAuto ? "auto" : isNumber ? "number" : "";
+
+  function chooseUnit(unit: string) {
+    if (unit === "auto") {
+      onCommit("auto");
+      return;
+    }
+    if (unit === "number" && isAuto) onCommit("1");
+  }
+
+  return (
+    <DropdownMenu>
+      <div className="space-y-1">
+        <Hint content={name}><label htmlFor={`layout-${name}`} className={inspectorLabelClass}>{label}</label></Hint>
+        <div className="group relative flex h-7 min-w-0 items-center rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5">
+          <Input id={`layout-${name}`} value={value} aria-label={`Edit ${name}`} className="h-4 min-w-0 w-full overflow-hidden text-ellipsis whitespace-nowrap appearance-none rounded-none border-0 bg-transparent p-0 pr-8 text-[14px] leading-4 font-normal tabular-nums shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[14px]" onChange={(event) => onCommit(event.currentTarget.value)} />
+          <Hint content={`Reset ${name}`}>
+            <Button type="button" variant="ghost" size="icon-xs" className="absolute right-5 top-1/2 size-4 -translate-y-1/2 rounded bg-background p-0 text-muted-foreground opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100" onClick={onReset} aria-label={`Reset ${name}`}>
+              <ArrowCounterClockwiseIcon className="size-3.5" />
+            </Button>
+          </Hint>
+          <Hint content={`Choose ${name} value`}>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="ghost" size="icon-xs" className="absolute right-0.5 top-1/2 size-4 -translate-y-1/2 rounded p-0 text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/10" aria-label={`Choose ${name} value`}>
+                <CaretDownIcon className="size-3" />
+              </Button>
+            </DropdownMenuTrigger>
+          </Hint>
+        </div>
+      </div>
+      <DropdownMenuContent align="end" sideOffset={4} className="w-40 rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
+        <DropdownMenuLabel className="px-2 py-1 text-[11px]">Units</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={selectedUnit === "number" ? "number" : ""} onValueChange={chooseUnit}>
+          <DropdownMenuRadioItem value="number" className="rounded-[3px] px-2 py-1 text-[12px]">Number</DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="px-2 py-1 text-[11px]">Placement</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={selectedUnit === "auto" ? "auto" : ""} onValueChange={chooseUnit}>
+          <DropdownMenuRadioItem value="auto" className="rounded-[3px] px-2 py-1 text-[12px]">Auto</DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 const sizingUnits = [
   { value: "px", label: "Pixels" },
   { value: "%", label: "Percent" },
@@ -657,6 +728,18 @@ const sizingKeywords = [
   { value: "max-content", label: "Max content", inputValue: "max" },
 ] as const;
 
+const gapKeywords = [
+  { value: "normal", label: "Normal", inputValue: "normal" },
+] as const;
+
+const zIndexUnits = [
+  { value: "number", label: "Number" },
+] as const;
+
+const zIndexKeywords = [
+  { value: "auto", label: "Auto", inputValue: "auto" },
+] as const;
+
 const insetKeywords = [
   { value: "auto", label: "Auto", inputValue: "auto" },
 ] as const;
@@ -664,15 +747,15 @@ const insetKeywords = [
 type SizingUnit = string;
 type SizingOption = { readonly value: string; readonly label: string; readonly inputValue?: string };
 
-function parseSizingValue(value: string | undefined, fallback: number, unitOptions: readonly SizingOption[] = sizingUnits, keywordOptions: readonly SizingOption[] = sizingKeywords) {
-  const normalized = value?.trim() || `${fallback}px`;
+function parseSizingValue(value: string | undefined, fallback: number, unitOptions: readonly SizingOption[] = sizingUnits, keywordOptions: readonly SizingOption[] = sizingKeywords, defaultUnit = "px") {
+  const normalized = value?.trim() || `${fallback}${defaultUnit === "number" ? "" : defaultUnit}`;
   const keyword = keywordOptions.find((option) => option.value === normalized);
   if (keyword) return { inputValue: keyword.inputValue || keyword.value, unit: keyword.value };
 
   const numeric = normalized.match(/^(-?(?:\d+(?:\.\d*)?|\.\d+))([a-z%]*)$/i);
   if (!numeric) return { inputValue: normalized, unit: "px" as SizingUnit };
 
-  const unit = unitOptions.some((option) => option.value === numeric[2]) ? numeric[2] : "px";
+  const unit = unitOptions.some((option) => option.value === numeric[2]) ? numeric[2] : numeric[2] === "" && defaultUnit === "number" ? "number" : "px";
   return { inputValue: numeric[1], unit };
 }
 
@@ -680,6 +763,7 @@ function sizingCssValue(inputValue: string, unit: SizingUnit, fallback: number, 
   const keyword = keywordOptions.find((option) => option.value === unit);
   if (keyword) return keyword.value;
   const value = inputValue.trim() || `${fallback}`;
+  if (unit === "number") return value;
   return `${value}${unit}`;
 }
 
@@ -692,8 +776,10 @@ function SizingLayoutField({
   onReset,
   unitOptions = sizingUnits,
   keywordOptions = sizingKeywords,
+  defaultUnit = "px",
   compactLabel = false,
   inlineLabel,
+  hideLabel = false,
 }: {
   label: React.ReactNode;
   name: string;
@@ -703,10 +789,12 @@ function SizingLayoutField({
   onReset: () => void;
   unitOptions?: readonly SizingOption[];
   keywordOptions?: readonly SizingOption[];
+  defaultUnit?: string;
   compactLabel?: boolean;
   inlineLabel?: boolean;
+  hideLabel?: boolean;
 }) {
-  const parsed = parseSizingValue(value, fallback, unitOptions, keywordOptions);
+  const parsed = parseSizingValue(value, fallback, unitOptions, keywordOptions, defaultUnit);
   const selectedKeyword = keywordOptions.find((option) => option.value === parsed.unit);
   const selectedUnitLabel = selectedKeyword?.label || unitOptions.find((option) => option.value === parsed.unit)?.label || "Custom";
   const isInline = inlineLabel ?? (compactLabel || typeof label !== "string");
@@ -720,7 +808,7 @@ function SizingLayoutField({
 
   const field = (
     <DropdownMenu>
-      <div className={`group relative min-w-0 rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5 ${isInline ? "grid h-7 grid-cols-[1.75rem_minmax(0,1fr)] items-center" : "flex h-7 items-center"}`}>
+      <div className={`group relative min-w-0 rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5 ${isInline ? `grid h-7 items-center ${compactLabel ? "grid-cols-[0.875rem_minmax(0,1fr)] gap-x-2" : "grid-cols-[1.75rem_minmax(0,1fr)]"}` : "flex h-7 items-center"}`}>
         {isInline ? <Hint content={name}><label htmlFor={`layout-${name}`} className={`${compactLabel ? "grid size-3.5 place-items-center [&>svg]:block" : ""} text-[14px] leading-4 font-normal text-muted-foreground`}>{label}</label></Hint> : null}
         <Input
           id={`layout-${name}`}
@@ -760,7 +848,7 @@ function SizingLayoutField({
     </DropdownMenu>
   );
 
-  if (!isInline) {
+  if (!isInline && !hideLabel) {
     return (
       <div className="space-y-1">
         <Hint content={name}><label htmlFor={`layout-${name}`} className={inspectorLabelClass}>{label}</label></Hint>
@@ -800,44 +888,25 @@ function LayoutSelectField({
   );
 }
 
-function CompactLayoutSelectField({
-  label,
-  name,
-  value,
-  options,
-  onChange,
-  onReset,
-}: {
-  label: React.ReactNode;
-  name: string;
-  value: string | undefined;
-  options: readonly { value: string; label: string }[];
-  onChange: (value: string) => void;
-  onReset: () => void;
-}) {
+function LayoutLabel({ children }: { children: React.ReactNode }) {
+  return <p className={inspectorLabelClass}>{children}</p>;
+}
+
+function CompactLayoutSelectField({ label, name, value, options, onChange }: { label: React.ReactNode; name: string; value: string | undefined; options: readonly { value: string; label: string }[]; onChange: (value: string) => void }) {
   return (
     <div className="group relative grid h-7 min-w-0 grid-cols-[0.875rem_minmax(0,1fr)] items-center gap-x-2 rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5">
-      <Hint content={name}><label className="grid size-3.5 place-items-center text-[14px] leading-none font-normal text-muted-foreground [&>svg]:block">{label}</label></Hint>
+      <Hint content={name}><span className="grid size-3.5 place-items-center text-[14px] leading-none font-normal text-muted-foreground [&>svg]:block">{label}</span></Hint>
       <Select value={value || options[0]?.value} onValueChange={onChange}>
-        <SelectTrigger size="sm" aria-label={`Edit ${name}`} className="h-7 min-w-0 w-full items-center justify-start gap-1 rounded-none border-0 bg-transparent p-0 pr-8 text-[14px] leading-none font-normal text-foreground shadow-none focus-visible:ring-0 [&>svg]:hidden">
+        <SelectTrigger size="sm" aria-label={`Edit ${name}`} className="h-7 min-w-0 w-full items-center justify-start gap-1 rounded-none border-0 bg-transparent p-0 pr-5 text-[14px] leading-none font-normal text-foreground shadow-none focus-visible:ring-0 [&>svg]:hidden">
           <SelectValue />
         </SelectTrigger>
         <SelectContent position="popper" className="rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
           {options.map((option) => <SelectItem key={option.value} value={option.value} className="rounded-[3px] px-2 py-1 text-[14px]">{option.label}</SelectItem>)}
         </SelectContent>
       </Select>
-      <Hint content={`Reset ${name}`}>
-        <Button type="button" variant="ghost" size="icon-xs" className="absolute right-5 top-1/2 z-10 size-4 -translate-y-1/2 rounded bg-background p-0 text-muted-foreground opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100" onClick={onReset} aria-label={`Reset ${name}`}>
-          <ArrowCounterClockwiseIcon className="size-3.5" />
-        </Button>
-      </Hint>
-      <CaretDownIcon className="pointer-events-none absolute right-0.5 top-1/2 z-10 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+      <CaretDownIcon className="pointer-events-none absolute right-0.5 top-1/2 z-10 size-3 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
     </div>
   );
-}
-
-function LayoutLabel({ children }: { children: React.ReactNode }) {
-  return <p className={inspectorLabelClass}>{children}</p>;
 }
 
 type SpacingProperty = "marginTop" | "marginRight" | "marginBottom" | "marginLeft" | "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft";
@@ -925,15 +994,6 @@ function SpacingGroup({
   );
 }
 
-const distributionOptions = [
-  { value: "flex-start", label: "Start" },
-  { value: "center", label: "Center" },
-  { value: "flex-end", label: "End" },
-  { value: "space-between", label: "Space between" },
-  { value: "space-around", label: "Space around" },
-  { value: "space-evenly", label: "Space evenly" },
-] as const;
-
 const overflowOptions = [
   { value: "visible", label: "Visible" },
   { value: "hidden", label: "Hidden" },
@@ -946,7 +1006,7 @@ const boxSizingOptions = [
   { value: "border-box", label: "Border-box" },
 ] as const;
 
-function normalizeDistribution(value: string | undefined) {
+function normalizeJustifyContent(value: string | undefined) {
   if (value === "center" || value === "flex-start" || value === "flex-end" || value === "space-between" || value === "space-around" || value === "space-evenly") return value;
   if (value === "start") return "flex-start";
   if (value === "end") return "flex-end";
@@ -1197,16 +1257,19 @@ function LayoutGroup({
     [AlignLeft2Filled, AlignHorizontalCenterFilled, AlignRight2Filled],
     [AlignLeft2Filled, AlignBottomFilled, AlignRight2Filled],
   ] as const;
-  const alignIndex = Math.max(0, alignmentValues.indexOf(selection.styles.alignItems as typeof alignmentValues[number]));
-  const distribution = normalizeDistribution(selection.styles.justifyContent);
-  const justifyIndex = Math.max(0, alignmentValues.indexOf(distribution as typeof alignmentValues[number]));
+  const normalizedAlignItems = selection.styles.alignItems === "start" ? "flex-start" : selection.styles.alignItems === "end" ? "flex-end" : selection.styles.alignItems;
+  const alignIndex = Math.max(0, alignmentValues.indexOf(normalizedAlignItems as typeof alignmentValues[number]));
+  const justifyContent = normalizeJustifyContent(selection.styles.justifyContent);
+  const justifyIndex = Math.max(0, alignmentValues.indexOf(justifyContent as typeof alignmentValues[number]));
   const positionMode = selection.styles.position || "static";
   const isFlexContainer = selection.styles.display === "flex" || selection.styles.display === "inline-flex";
   const isFlexItem = selection.parentLayout?.display === "flex" || selection.parentLayout?.display === "inline-flex";
   const isGridContainer = selection.styles.display === "grid" || selection.styles.display === "inline-grid";
   const isGridItem = selection.parentLayout?.display === "grid" || selection.parentLayout?.display === "inline-grid";
   const isColumnFlex = isFlexContainer && (selection.styles.flexDirection === "column" || selection.styles.flexDirection === "column-reverse");
-  const isDistributed = distribution.startsWith("space-");
+  const quickAlignActive = alignmentValues.includes(normalizedAlignItems as typeof alignmentValues[number]) && alignmentValues.includes(justifyContent as typeof alignmentValues[number]);
+  const alignItemsValue = normalizedAlignItems || "normal";
+  const alignContentValue = selection.styles.alignContent || "normal";
 
   function applyAlignment(row: number, column: number) {
     if (isColumnFlex) {
@@ -1251,64 +1314,106 @@ function LayoutGroup({
           </div>
         </div>
 
-        <LayoutSelectField label="Box Sizing" name="box-sizing" value={selection.styles.boxSizing} options={boxSizingOptions} onChange={(value) => onApplyStyle("boxSizing", value)} />
-
         <SpacingGroup selection={selection} onApplyStyle={onApplyStyle} />
 
         <div className="space-y-1">
-          <LayoutLabel>Alignment</LayoutLabel>
-          <div className="grid grid-cols-2 items-start gap-1">
-            <div className="grid w-full grid-cols-3 gap-0.5 rounded-[5px] border border-border bg-muted/35 p-0.5" role="group" aria-label="Alignment and justification">
-              {alignmentValues.flatMap((alignValue, row) => alignmentIcons[row].map((AlignmentIcon, column) => {
-                const justifyValue = alignmentValues[column];
-                const selected = isDistributed
-                  ? (isColumnFlex ? column === alignIndex : row === alignIndex)
-                  : (isColumnFlex ? row === justifyIndex && column === alignIndex : row === alignIndex && column === justifyIndex);
-                return (
-                  <Button key={`${alignValue}-${justifyValue}`} type="button" variant="ghost" size="icon-xs" className="h-7 w-full rounded-[3px] text-muted-foreground shadow-none hover:bg-transparent" onClick={() => applyAlignment(row, column)} aria-label={`Align ${alignValue}, justify ${justifyValue}`} aria-pressed={selected}>
-                    {selected ? (isDistributed ? <Columns3Filled className="size-3.5" aria-hidden="true" /> : <AlignmentIcon className="size-3.5" aria-hidden="true" />) : <DotIcon className="size-3.5" aria-hidden="true" />}
-                  </Button>
-                );
-              }))}
-            </div>
-            <div className="space-y-1">
-              <CompactLayoutSelectField label={<AlignLeftIcon className="size-3.5" aria-hidden="true" />} name="justify-content" value={distribution} options={distributionOptions} onChange={(value) => onApplyStyle("justifyContent", value)} onReset={() => onResetStyle("justifyContent")} />
-              <SizingLayoutField compactLabel label={<SplitHorizontalIcon className="size-3.5" aria-hidden="true" />} name="gap" value={selection.styles.gap} fallback={0} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("gap", sizingCssValue(value, unit, 0, []))} onReset={() => onResetStyle("gap")} />
-              <CompactLayoutField label={<StackSimpleIcon className="size-3.5" aria-hidden="true" />} name="z-index" value={selection.styles.zIndex} onCommit={(value) => onApplyStyle("zIndex", value)} onReset={() => onResetStyle("zIndex")} />
-            </div>
-          </div>
-        </div>
-        <div className="space-y-1">
           <LayoutLabel>Display</LayoutLabel>
           <div className={layoutControlSurface} role="group" aria-label="Display">
-            {[["block", SquareIcon], ["flex", DotsNineIcon], ["grid", GridFourIcon]].map(([value, Icon]) => (
+            {[["block", SquareIcon], ["flex", DotsNineIcon], ["grid", GridFourIcon], ["none", EyeSlashIcon]].map(([value, Icon]) => (
               <Hint key={value as string} content={`Display ${value}`}>
                 <Button key={value as string} type="button" variant="ghost" size="icon-xs" className={layoutControlButton} onClick={() => onApplyStyle("display", value as string)} aria-label={`Display ${value}`} aria-pressed={selection.styles.display === value}><Icon className="size-3.5" /></Button>
               </Hint>
             ))}
           </div>
         </div>
+
         {isFlexContainer || isFlexItem ? (
-          <div className="space-y-2">
-            <LayoutLabel>Flex container</LayoutLabel>
+          <div className="mt-2 space-y-2 pt-2">
             {isFlexContainer ? (
-              <div className="space-y-1">
+              <div className="space-y-2">
                 <div className="grid grid-cols-2 gap-1">
-                  <SizingLayoutField label="RG" name="row-gap" value={selection.styles.rowGap} fallback={0} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("rowGap", sizingCssValue(value, unit, 0, []))} onReset={() => onResetStyle("rowGap")} />
-                  <SizingLayoutField label="CG" name="column-gap" value={selection.styles.columnGap} fallback={0} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("columnGap", sizingCssValue(value, unit, 0, []))} onReset={() => onResetStyle("columnGap")} />
+                  <div className="space-y-1">
+                    <LayoutLabel>Flex direction</LayoutLabel>
+                    <div className={layoutControlSurface} role="group" aria-label="Flex direction">
+                      <Hint content="Row">
+                        <Button type="button" variant="ghost" size="icon-xs" className={layoutControlButton} onClick={() => onApplyStyle("flexDirection", "row")} aria-label="Flex direction row" aria-pressed={selection.styles.flexDirection === "row"}><ColumnsIcon className="size-3.5" /></Button>
+                      </Hint>
+                      <Hint content="Column">
+                        <Button type="button" variant="ghost" size="icon-xs" className={layoutControlButton} onClick={() => onApplyStyle("flexDirection", "column")} aria-label="Flex direction column" aria-pressed={selection.styles.flexDirection === "column"}><RowsIcon className="size-3.5" /></Button>
+                      </Hint>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <LayoutLabel>Flex wrap</LayoutLabel>
+                    <div className={layoutControlSurface} role="group" aria-label="Flex wrap">
+                      <Hint content="No wrap">
+                        <Button type="button" variant="ghost" size="icon-xs" className={layoutControlButton} onClick={() => onApplyStyle("flexWrap", "nowrap")} aria-label="Flex no wrap" aria-pressed={selection.styles.flexWrap !== "wrap"}><ArrowsOutLineHorizontalIcon className="size-3.5" /></Button>
+                      </Hint>
+                      <Hint content="Wrap">
+                        <Button type="button" variant="ghost" size="icon-xs" className={layoutControlButton} onClick={() => onApplyStyle("flexWrap", "wrap")} aria-label="Flex wrap" aria-pressed={selection.styles.flexWrap === "wrap"}><ArrowElbowDownLeftIcon className="size-3.5" /></Button>
+                      </Hint>
+                    </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 items-start gap-1">
+                  <div className="space-y-1">
+                    <LayoutLabel>Alignment</LayoutLabel>
+                    <div className="grid w-full grid-cols-3 gap-0.5 rounded-[5px] border border-border bg-muted/35 p-0.5" role="group" aria-label="Alignment">
+                      {alignmentValues.flatMap((alignValue, row) => alignmentIcons[row].map((AlignmentIcon, column) => {
+                        const justifyValue = alignmentValues[column];
+                        const selected = quickAlignActive && (isColumnFlex ? row === justifyIndex && column === alignIndex : row === alignIndex && column === justifyIndex);
+                        return (
+                          <Button key={`${alignValue}-${justifyValue}`} type="button" variant="ghost" size="icon-xs" className="h-[30px] w-full rounded-[3px] text-muted-foreground shadow-none hover:bg-transparent" onClick={() => applyAlignment(row, column)} aria-label={`Alignment ${alignValue}, justify ${justifyValue}`} aria-pressed={selected}>
+                            {selected ? <AlignmentIcon className="size-3.5" aria-hidden="true" /> : <DotIcon className="size-3.5" aria-hidden="true" />}
+                          </Button>
+                        );
+                      }))}
+                    </div>
+                  </div>
+                  <div className="space-y-2 pt-5">
+                    <CompactLayoutSelectField label={<AlignCenterVerticalSimpleIcon className="size-3.5" aria-hidden="true" />} name="justify-content" value={justifyContent} options={[
+                      { value: "flex-start", label: "Flex start" },
+                      { value: "flex-end", label: "Flex end" },
+                      { value: "center", label: "Center" },
+                      { value: "space-between", label: "Space between" },
+                      { value: "space-around", label: "Space around" },
+                      { value: "space-evenly", label: "Space evenly" },
+                    ]} onChange={(value) => onApplyStyle("justifyContent", value)} />
+                    <CompactLayoutSelectField label={<AlignCenterHorizontalSimpleIcon className="size-3.5" aria-hidden="true" />} name="align-items" value={alignItemsValue} options={[
+                      { value: "normal", label: "Normal" },
+                      { value: "stretch", label: "Stretch" },
+                      { value: "flex-start", label: "Flex start" },
+                      { value: "flex-end", label: "Flex end" },
+                      { value: "center", label: "Center" },
+                      { value: "baseline", label: "Baseline" },
+                    ]} onChange={(value) => onApplyStyle("alignItems", value)} />
+                    <CompactLayoutSelectField label={<AlignCenterVerticalIcon className="size-3.5" aria-hidden="true" />} name="align-content" value={alignContentValue} options={[
+                      { value: "stretch", label: "Stretch" },
+                      { value: "normal", label: "Normal" },
+                      { value: "flex-start", label: "Flex start" },
+                      { value: "flex-end", label: "Flex end" },
+                      { value: "center", label: "Center" },
+                      { value: "space-between", label: "Space between" },
+                      { value: "space-around", label: "Space around" },
+                      { value: "space-evenly", label: "Space evenly" },
+                    ]} onChange={(value) => onApplyStyle("alignContent", value)} />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <LayoutLabel>Gap</LayoutLabel>
+                  <SizingLayoutField label="gap" hideLabel name="gap" value={selection.styles.gap} fallback={0} keywordOptions={gapKeywords} onCommit={(value, unit) => onApplyStyle("gap", sizingCssValue(value, unit, 0, gapKeywords))} onReset={() => onResetStyle("gap")} />
                 </div>
               </div>
             ) : null}
             {isFlexItem ? (
               <div className="space-y-1">
-                <p className="text-[11px] leading-4 text-muted-foreground">Item</p>
                 <div className="grid grid-cols-2 gap-1">
-                  <CompactLayoutField label="G" name="flex-grow" value={selection.styles.flexGrow} onCommit={(value) => onApplyStyle("flexGrow", value)} onReset={() => onResetStyle("flexGrow")} />
-                  <CompactLayoutField label="S" name="flex-shrink" value={selection.styles.flexShrink} onCommit={(value) => onApplyStyle("flexShrink", value)} onReset={() => onResetStyle("flexShrink")} />
-                  <SizingLayoutField label="B" name="flex-basis" value={selection.styles.flexBasis} fallback={0} onCommit={(value, unit) => onApplyStyle("flexBasis", sizingCssValue(value, unit, 0))} onReset={() => onResetStyle("flexBasis")} />
-                  <CompactLayoutField label="O" name="order" value={selection.styles.order} onCommit={(value) => onApplyStyle("order", value)} onReset={() => onResetStyle("order")} />
+                  <CompactLayoutField label="Grow" name="flex-grow" value={selection.styles.flexGrow} onCommit={(value) => onApplyStyle("flexGrow", value)} onReset={() => onResetStyle("flexGrow")} />
+                  <CompactLayoutField label="Shrink" name="flex-shrink" value={selection.styles.flexShrink} onCommit={(value) => onApplyStyle("flexShrink", value)} onReset={() => onResetStyle("flexShrink")} />
+                  <SizingLayoutField label="Basis" name="flex-basis" value={selection.styles.flexBasis} fallback={0} onCommit={(value, unit) => onApplyStyle("flexBasis", sizingCssValue(value, unit, 0))} onReset={() => onResetStyle("flexBasis")} />
+                  <CompactLayoutField label="Order" name="order" value={selection.styles.order} onCommit={(value) => onApplyStyle("order", value)} onReset={() => onResetStyle("order")} />
                 </div>
-                <LayoutSelectField label="AS" name="align-self" value={selection.styles.alignSelf} options={[
+                <LayoutSelectField label="Align self" name="align-self" value={selection.styles.alignSelf} options={[
                   { value: "auto", label: "Auto" },
                   { value: "flex-start", label: "Flex start" },
                   { value: "flex-end", label: "Flex end" },
@@ -1321,15 +1426,14 @@ function LayoutGroup({
           </div>
         ) : null}
         {isGridContainer || isGridItem ? (
-          <div className="space-y-2">
-            <LayoutLabel>Grid container</LayoutLabel>
+          <div className="mt-2 space-y-2 pt-2">
             {isGridContainer ? (
               <div className="space-y-1">
                 <div className="grid grid-cols-2 gap-1">
-                  <CompactLayoutField label="C" name="grid-template-columns" value={selection.styles.gridTemplateColumns} wideLabel onCommit={(value) => onApplyStyle("gridTemplateColumns", value)} onReset={() => onResetStyle("gridTemplateColumns")} />
-                  <CompactLayoutField label="R" name="grid-template-rows" value={selection.styles.gridTemplateRows} wideLabel onCommit={(value) => onApplyStyle("gridTemplateRows", value)} onReset={() => onResetStyle("gridTemplateRows")} />
-                  <SizingLayoutField label="RG" name="row-gap" value={selection.styles.rowGap} fallback={0} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("rowGap", sizingCssValue(value, unit, 0, []))} onReset={() => onResetStyle("rowGap")} />
-                  <SizingLayoutField label="CG" name="column-gap" value={selection.styles.columnGap} fallback={0} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("columnGap", sizingCssValue(value, unit, 0, []))} onReset={() => onResetStyle("columnGap")} />
+                  <CompactLayoutField label="Columns" name="grid-template-columns" value={selection.styles.gridTemplateColumns} onCommit={(value) => onApplyStyle("gridTemplateColumns", value)} onReset={() => onResetStyle("gridTemplateColumns")} />
+                  <CompactLayoutField label="Rows" name="grid-template-rows" value={selection.styles.gridTemplateRows} onCommit={(value) => onApplyStyle("gridTemplateRows", value)} onReset={() => onResetStyle("gridTemplateRows")} />
+                  <SizingLayoutField label="Row gap" name="row-gap" value={selection.styles.rowGap} fallback={0} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("rowGap", sizingCssValue(value, unit, 0, []))} onReset={() => onResetStyle("rowGap")} />
+                  <SizingLayoutField label="Column gap" name="column-gap" value={selection.styles.columnGap} fallback={0} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("columnGap", sizingCssValue(value, unit, 0, []))} onReset={() => onResetStyle("columnGap")} />
                 </div>
                 <LayoutSelectField label="Auto placement" name="grid-auto-flow" value={selection.styles.gridAutoFlow} options={[
                   { value: "row", label: "Row" },
@@ -1340,24 +1444,22 @@ function LayoutGroup({
                 ]} onChange={(value) => onApplyStyle("gridAutoFlow", value)} />
               </div>
             ) : null}
-            {isGridItem ? (
-              <div className="space-y-1">
-                <p className="text-[11px] leading-4 text-muted-foreground">Item</p>
+      {isGridItem ? (
+        <div className="space-y-1">
                 <div className="grid grid-cols-2 gap-1">
-                  <CompactLayoutField label="CS" name="grid-column-start" value={selection.styles.gridColumnStart} onCommit={(value) => onApplyStyle("gridColumnStart", value)} onReset={() => onResetStyle("gridColumnStart")} />
-                  <CompactLayoutField label="CE" name="grid-column-end" value={selection.styles.gridColumnEnd} onCommit={(value) => onApplyStyle("gridColumnEnd", value)} onReset={() => onResetStyle("gridColumnEnd")} />
-                  <CompactLayoutField label="RS" name="grid-row-start" value={selection.styles.gridRowStart} onCommit={(value) => onApplyStyle("gridRowStart", value)} onReset={() => onResetStyle("gridRowStart")} />
-                  <CompactLayoutField label="RE" name="grid-row-end" value={selection.styles.gridRowEnd} onCommit={(value) => onApplyStyle("gridRowEnd", value)} onReset={() => onResetStyle("gridRowEnd")} />
-                  <CompactLayoutField label="A" name="grid-area" value={selection.styles.gridArea} onCommit={(value) => onApplyStyle("gridArea", value)} onReset={() => onResetStyle("gridArea")} />
+                  <GridPlacementField label="Column start" name="grid-column-start" value={selection.styles.gridColumnStart} onCommit={(value) => onApplyStyle("gridColumnStart", value)} onReset={() => onResetStyle("gridColumnStart")} />
+                  <GridPlacementField label="Column end" name="grid-column-end" value={selection.styles.gridColumnEnd} onCommit={(value) => onApplyStyle("gridColumnEnd", value)} onReset={() => onResetStyle("gridColumnEnd")} />
+                  <GridPlacementField label="Row start" name="grid-row-start" value={selection.styles.gridRowStart} onCommit={(value) => onApplyStyle("gridRowStart", value)} onReset={() => onResetStyle("gridRowStart")} />
+                  <GridPlacementField label="Row end" name="grid-row-end" value={selection.styles.gridRowEnd} onCommit={(value) => onApplyStyle("gridRowEnd", value)} onReset={() => onResetStyle("gridRowEnd")} />
                 </div>
-                <LayoutSelectField label="JS" name="justify-self" value={selection.styles.justifySelf} options={[
+                <LayoutSelectField label="Justify self" name="justify-self" value={selection.styles.justifySelf} options={[
                   { value: "auto", label: "Auto" },
                   { value: "start", label: "Start" },
                   { value: "end", label: "End" },
                   { value: "center", label: "Center" },
                   { value: "stretch", label: "Stretch" },
                 ]} onChange={(value) => onApplyStyle("justifySelf", value)} />
-                <LayoutSelectField label="AS" name="align-self" value={selection.styles.alignSelf} options={[
+                <LayoutSelectField label="Align self" name="align-self" value={selection.styles.alignSelf} options={[
                   { value: "auto", label: "Auto" },
                   { value: "start", label: "Start" },
                   { value: "end", label: "End" },
@@ -1368,23 +1470,10 @@ function LayoutGroup({
             ) : null}
           </div>
         ) : null}
-        <div className="space-y-1">
-          <LayoutLabel>Flow</LayoutLabel>
-          {isFlexContainer ? (
-            <div className="grid grid-cols-[minmax(0,1fr)_1.75rem] gap-1">
-              <div className={layoutControlSurface} role="group" aria-label="Flex direction">
-                <Hint content="Flex direction row">
-                  <Button type="button" variant="ghost" size="icon-xs" className={layoutControlButton} onClick={() => onApplyStyle("flexDirection", "row")} aria-label="Flex direction row" aria-pressed={selection.styles.flexDirection === "row"}><RowsIcon className="size-3.5" /></Button>
-                </Hint>
-                <Hint content="Flex direction column">
-                  <Button type="button" variant="ghost" size="icon-xs" className={layoutControlButton} onClick={() => onApplyStyle("flexDirection", "column")} aria-label="Flex direction column" aria-pressed={selection.styles.flexDirection === "column"}><ColumnsIcon className="size-3.5" /></Button>
-                </Hint>
-              </div>
-              <Hint content={selection.styles.flexWrap === "wrap" ? "Disable flex wrap" : "Enable flex wrap"}>
-                <Button type="button" variant="ghost" size="icon-xs" className="size-7 rounded-[5px] border border-border bg-muted/35 text-muted-foreground shadow-none aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-none aria-pressed:ring-1 aria-pressed:ring-foreground/5" onClick={() => onApplyStyle("flexWrap", selection.styles.flexWrap === "wrap" ? "nowrap" : "wrap")} aria-label="Toggle flex wrap" aria-pressed={selection.styles.flexWrap === "wrap"}><ArrowElbowDownLeftIcon className="size-3.5" /></Button>
-              </Hint>
-            </div>
-          ) : null}
+        <div className="space-y-2">
+          <LayoutSelectField label="Box sizing" name="box-sizing" value={selection.styles.boxSizing} options={boxSizingOptions} onChange={(value) => onApplyStyle("boxSizing", value)} />
+          <div className="space-y-1">
+          <LayoutLabel>Positioning</LayoutLabel>
           <Select value={positionMode} onValueChange={(value) => onApplyStyle("position", value)}>
             <SelectTrigger aria-label="Position" className={`${inspectorFieldClass} h-7 w-full px-2 font-normal hover:bg-muted/30 focus-visible:ring-1 focus-visible:ring-foreground/5`}>
               <SelectValue />
@@ -1413,9 +1502,10 @@ function LayoutGroup({
               ) : null}
             </div>
           ) : null}
-        </div>
-        <LayoutSelectField label="Overflow" name="overflow" value={selection.styles.overflow || "visible"} options={overflowOptions} onChange={(value) => onApplyStyle("overflow", value)} />
-        <div className="space-y-1">
+          </div>
+          <SizingLayoutField label="Z-index" name="z-index" value={selection.styles.zIndex} fallback={0} unitOptions={zIndexUnits} keywordOptions={zIndexKeywords} defaultUnit="number" onCommit={(value, unit) => onApplyStyle("zIndex", sizingCssValue(value, unit, 0, zIndexKeywords))} onReset={() => onResetStyle("zIndex")} />
+          <LayoutSelectField label="Overflow" name="overflow" value={selection.styles.overflow || "visible"} options={overflowOptions} onChange={(value) => onApplyStyle("overflow", value)} />
+          <div className="space-y-1">
           <div className="flex h-4 items-center justify-between">
             <LayoutLabel>Transform</LayoutLabel>
             <Hint content="Add transform">
@@ -1435,6 +1525,7 @@ function LayoutGroup({
                 onReset={resetTransform}
               />
             ))}
+          </div>
           </div>
         </div>
       </div>
@@ -1611,13 +1702,12 @@ function LayerRow({
         <button
           type="button"
           draggable
-          className="flex min-w-0 flex-1 cursor-grab items-center gap-1.5 rounded-[3px] px-1.5 py-1 text-left text-[12px] leading-4 outline-none focus-visible:cursor-grabbing focus-visible:ring-1 focus-visible:ring-ring"
+          className="flex min-w-0 flex-1 cursor-default items-center gap-1.5 rounded-[3px] px-1.5 py-1 text-left text-[12px] leading-4 outline-none focus-visible:ring-1 focus-visible:ring-ring"
           onClick={() => onSelect(node.selectionId)}
           onDragStart={(event) => onDragStart(event, node.selectionId)}
            onDragEnd={onDragEnd}
            aria-current={selected ? "true" : undefined}
            aria-label={`${node.tagName.toLowerCase()} ${node.name}`}
-           title={node.detail ? `${node.tagName.toLowerCase()} · ${node.name} · ${node.detail}` : `${node.tagName.toLowerCase()} · ${node.name}`}
          >
           <LayerIcon tagName={node.tagName} />
           <span className="min-w-0 truncate font-normal">{node.name}</span>
@@ -1770,13 +1860,7 @@ function LayerPanel({
             </Button>
           </Hint>
         </div>
-        {!isDesktop ? (
-          <div className="px-3 py-8 text-center text-xs leading-5 text-muted-foreground">Open Formia in the desktop app to inspect layers.</div>
-        ) : !canvasUrl ? (
-          <div className="px-3 py-8 text-center text-xs leading-5 text-muted-foreground">Connect a project to see its layers.</div>
-        ) : layerTree.length === 0 ? (
-          <div className="px-3 py-8 text-center text-xs leading-5 text-muted-foreground">Loading layers…</div>
-        ) : (
+        {isDesktop && canvasUrl && layerTree.length > 0 ? (
           <>
             {layerTree.map((node, index) => (
               <LayerRow
@@ -1806,7 +1890,7 @@ function LayerPanel({
               onDrop={handleRootDrop}
             />
           </>
-        )}
+        ) : null}
       </div>
     </aside>
   );
@@ -1825,13 +1909,13 @@ function WorkspaceToolbar({
 }) {
   return (
     <aside className={`flex h-full w-11 shrink-0 flex-col items-center border-r border-border bg-white pt-2 ${className || ""}`} aria-label="Workspace tools">
-      {workspaceTools.map(({ name, label, icon: Icon, weight }) => (
-        <Hint key={name} content={label}>
+      {workspaceTools.map(({ name, label, shortcut, icon: Icon, weight }) => (
+        <Hint key={name} content={`${label} (${shortcut})`}>
           <Button
             type="button"
             variant="ghost"
             size="icon-sm"
-            className={`rounded-[5px] text-foreground hover:text-foreground ${activeTool === name ? "bg-accent hover:bg-accent" : ""}`}
+            className={`rounded-[5px] text-muted-foreground hover:text-muted-foreground ${activeTool === name ? "bg-accent hover:bg-accent" : ""}`}
             onClick={() => onSelectTool(name)}
             disabled={!isDesktop}
             aria-pressed={activeTool === name}
@@ -1870,7 +1954,7 @@ function WorkspaceTopbar({
   const menuItemClass = "rounded-[4px] px-2 py-1.5 text-[13px]";
 
   return (
-    <header className="formia-titlebar z-40 flex h-10 shrink-0 items-center border-b border-border bg-white px-2 text-foreground">
+    <header className="formia-titlebar z-40 flex h-10 shrink-0 items-center border-b border-border bg-white pl-2 text-foreground">
       <div className="flex items-center gap-0.5">
         <Hint content={sidebarsVisible ? "Hide sidebars" : "Show sidebars"}>
           <Button type="button" variant="ghost" size="icon-sm" className="formia-no-drag rounded-[5px]" onClick={onToggleSidebars} aria-label={sidebarsVisible ? "Hide sidebars" : "Show sidebars"} aria-pressed={sidebarsVisible}>
@@ -1912,7 +1996,6 @@ function WorkspaceTopbar({
             <DropdownMenuItem className={menuItemClass} onSelect={onResetPreview}>
               <ArrowCounterClockwiseIcon />
               Reset preview
-              <DropdownMenuShortcut>Ctrl+Z</DropdownMenuShortcut>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -1929,6 +2012,7 @@ function WorkspaceTopbar({
             <DropdownMenuItem className={menuItemClass} onSelect={onFitCanvas}>
               <ArrowsOutIcon />
               Fit artboard
+              <DropdownMenuShortcut>0</DropdownMenuShortcut>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -1937,15 +2021,39 @@ function WorkspaceTopbar({
             <Button type="button" variant="ghost" size="xs" className={menuTriggerClass}>Help</Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="min-w-48">
-            <DropdownMenuItem className={menuItemClass} disabled>
-              <QuestionIcon />
-              Keyboard shortcuts
-            </DropdownMenuItem>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger className={menuItemClass}>
+                <QuestionIcon />
+                Keyboard shortcuts
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="min-w-64">
+                <DropdownMenuLabel>Workspace</DropdownMenuLabel>
+                <ShortcutRow label="Select" shortcut="S" />
+                <ShortcutRow label="Interact" shortcut="I" />
+                <ShortcutRow label="Text" shortcut="T" />
+                <ShortcutRow label="Pan canvas" shortcut="Space" />
+                <ShortcutRow label="Fit artboard" shortcut="0" />
+                <ShortcutRow label="Zoom in / out" shortcut="+ / -" />
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>Navigation</DropdownMenuLabel>
+                <ShortcutRow label="Back to projects" shortcut="Ctrl+[" />
+                <ShortcutRow label="Cancel or clear selection" shortcut="Esc" />
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
           </DropdownMenuContent>
         </DropdownMenu>
       </nav>
       <WindowControls />
     </header>
+  );
+}
+
+function ShortcutRow({ label, shortcut }: { label: string; shortcut: string }) {
+  return (
+    <div className="flex items-center gap-3 px-2 py-1.5 text-[13px]">
+      <span>{label}</span>
+      <span className="ml-auto text-xs tracking-widest text-muted-foreground">{shortcut}</span>
+    </div>
   );
 }
 
@@ -1995,19 +2103,7 @@ function PropertiesSidebar({
     <aside className={`flex h-full w-72 shrink-0 flex-col border-l border-border bg-white text-foreground ${className || ""}`}>
       <header className="shrink-0 border-b border-border bg-background px-3 py-2.5">
         <div className="flex items-center justify-end gap-1">
-          <Hint content="Reset preview">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={onResetAll}
-              disabled={!selection}
-              aria-label="Reset preview"
-            >
-              <ArrowCounterClockwiseIcon />
-            </Button>
-          </Hint>
-          <div className="flex items-center">
+          <div className="flex items-center gap-0">
             <Hint content={!isDesktop ? "Open Formia in the desktop app to enable Build" : buildIndicator === "unavailable" || buildIndicator === "checking" ? codexAvailability.message : !projectPath ? "Select a project from the desktop app to enable Build" : buildIndicator === "up-to-date" ? buildIndicatorLabel(buildIndicator) : "Send staged visual changes to Codex"}>
               <Button
                 type="button"
@@ -2025,17 +2121,21 @@ function PropertiesSidebar({
             </Hint>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button type="button" size="lg" className="w-9 rounded-l-none px-0" aria-label="Build options">
+                <Button type="button" size="lg" className="-ml-px w-9 rounded-l-none px-0" aria-label="Build options">
                   <CaretDownIcon className="size-3.5" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-44">
+              <DropdownMenuContent align="end" className="min-w-44 rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
+                <DropdownMenuItem disabled={!selection} onSelect={onResetAll}>
+                  <EraserIcon />
+                  Reset design
+                </DropdownMenuItem>
                 <DropdownMenuItem disabled={!isDesktop || !projectPath || projectServerStatus.state === "starting"} onSelect={onRestartServer}>
-                  <ArrowClockwiseIcon />
+                  <TerminalWindowIcon />
                   Restart server
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled={!canRefreshApp} onSelect={onRefreshApp}>
-                  <ArrowCounterClockwiseIcon />
+                  <ArrowClockwiseIcon />
                   Refresh app
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -2084,7 +2184,7 @@ function PropertiesSidebar({
             {selection.react && typeof selection.react.props === "object" && selection.react.props !== null ? (
               <PropertyGroup title="React props" values={selection.react.props as Record<string, unknown>} />
             ) : null}
-            {selection.textEditable ? <ContentGroup value={selection.text} onCommit={onApplyText} onReset={onResetText} /> : null}
+            {selection.textEditable && selection.text.trim() ? <ContentGroup value={selection.text} onCommit={onApplyText} onReset={onResetText} /> : null}
             <LayoutGroup key={selection.selectionId ?? `${selection.tagName}-${selection.id ?? "selected"}`} selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
             <TypographyGroup selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
             <ColorGroup selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
@@ -2094,25 +2194,18 @@ function PropertiesSidebar({
         ) : (
           <>
             <section className={inspectorSectionClass}>
-              <label htmlFor="canvas-background-color" className={inspectorLabelClass}>Canvas background</label>
-              <div className="mt-1 grid grid-cols-[2.25rem_minmax(0,1fr)] items-center gap-1">
-                <input
+              <h3 className={inspectorTitleClass}>Page</h3>
+              <div className="group relative flex h-7 min-w-0 items-center gap-1 rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5">
+                <ColorPicker value={colorPickerValue(canvasBackground)} onChange={onCanvasBackgroundChange} ariaLabel="Choose page background color" />
+                <Input
                   id="canvas-background-color"
-                  type="color"
                   value={canvasBackground}
+                  aria-label="Edit page background color"
+                  className="h-4 min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded-none border-0 bg-transparent p-0 text-[12px] leading-4 font-normal shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[12px]"
                   onChange={(event) => onCanvasBackgroundChange(event.target.value)}
-                  className="h-7 w-full rounded-[5px] border border-border bg-background p-1"
-                  aria-label="Canvas background color"
                 />
-                <span className={`${inspectorFieldClass} flex h-7 items-center font-mono text-[12px] uppercase`}>{canvasBackground}</span>
               </div>
             </section>
-            <div className="flex min-h-64 flex-col items-center justify-center px-8 text-center">
-              <NavigationArrowIcon className="mb-3 size-6 text-muted-foreground" weight="fill" />
-              <p className="text-xs leading-5 text-muted-foreground">
-                Choose Select, then click any visible element in the application.
-              </p>
-            </div>
           </>
         )}
       </div>
@@ -2146,7 +2239,7 @@ export function ProjectWorkspace({
   const [activeTool, setActiveTool] = useState<ToolName>("interact");
   const [selection, setSelection] = useState<SelectedElement | null>(null);
   const [layerTree, setLayerTree] = useState<LayerNode[]>([]);
-  const [canvasBackground, setCanvasBackground] = useState("#ffffff");
+  const [canvasBackground, setCanvasBackground] = useState("#F5F5F5");
   const [sidebarsVisible, setSidebarsVisible] = useState(true);
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
@@ -2168,6 +2261,7 @@ export function ProjectWorkspace({
   const panTargetRef = useRef({ x: 0, y: 0 });
   const viewportAnimationRef = useRef<number | null>(null);
   const activeToolRef = useRef<ToolName>("interact");
+  const shortcutHandlerRef = useRef<(input: WorkspaceShortcutInput) => void>(() => {});
   const handleWebviewWheelRef = useRef(handleWebviewWheel);
   handleWebviewWheelRef.current = handleWebviewWheel;
 
@@ -2230,6 +2324,15 @@ export function ProjectWorkspace({
       const message = event as FormiaWebviewEvent;
       if (message.channel === "formia:canvas-wheel") {
         handleWebviewWheelRef.current(message.args[0] as CanvasWheelInput);
+        return;
+      }
+      if (message.channel === "formia:canvas-keydown") {
+        shortcutHandlerRef.current(message.args[0] as CanvasKeyboardInput);
+        return;
+      }
+      if (message.channel === "formia:canvas-keyup") {
+        const input = message.args[0] as CanvasKeyboardInput;
+        if (input.code === "Space") setPanMode(false);
         return;
       }
       if (message.channel === "formia:page-height") {
@@ -2328,26 +2431,6 @@ export function ProjectWorkspace({
     webviewRef.current?.send("formia:set-tool", activeTool);
   }, [activeTool]);
 
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.code === "Space" && !event.repeat && !(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement)) {
-        event.preventDefault();
-        setPanMode(true);
-      }
-    }
-
-    function handleKeyUp(event: KeyboardEvent) {
-      if (event.code === "Space") setPanMode(false);
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-    };
-  }, []);
-
   function fitCanvas() {
     const viewport = canvasViewportRef.current;
     if (!viewport) return;
@@ -2355,7 +2438,7 @@ export function ProjectWorkspace({
     const padding = 64;
     const nextZoom = clampZoom(Math.min(
       (viewport.clientWidth - padding) / artboardWidth,
-      (viewport.clientHeight - padding) / artboardHeight,
+      (viewport.clientHeight - padding) / artboardHeightRef.current,
     ));
     animateViewport(nextZoom, { x: 0, y: 0 });
   }
@@ -2495,6 +2578,99 @@ export function ProjectWorkspace({
   function sendCanvasMessage(channel: string, ...args: unknown[]) {
     webviewRef.current?.send(channel, ...args);
   }
+
+  function handleWorkspaceShortcut(input: WorkspaceShortcutInput) {
+    const hasModifier = input.ctrlKey || input.metaKey;
+
+    if (input.code === "Space") {
+      if (!input.repeat && !input.targetIsEditable && !hasModifier && !input.altKey) {
+        input.preventDefault?.();
+        setPanMode(true);
+      }
+      return;
+    }
+
+    if (input.code === "Escape") {
+      if (!input.targetIsEditable) {
+        setPanMode(false);
+        clearCanvasSelection();
+      }
+      return;
+    }
+
+    if (input.targetIsEditable || input.altKey || input.repeat) return;
+
+    if (hasModifier) {
+      if (!input.shiftKey && input.code === "BracketLeft") {
+        input.preventDefault?.();
+        goBack();
+      }
+      return;
+    }
+
+    if (input.code === "Equal" || input.code === "NumpadAdd") {
+      input.preventDefault?.();
+      zoomCanvas(0.1);
+      return;
+    }
+
+    if (input.code === "Minus" || input.code === "NumpadSubtract") {
+      input.preventDefault?.();
+      zoomCanvas(-0.1);
+      return;
+    }
+
+    if (input.shiftKey) return;
+
+    if (input.code === "KeyS") {
+      input.preventDefault?.();
+      selectTool("select");
+      return;
+    }
+    if (input.code === "KeyI") {
+      input.preventDefault?.();
+      selectTool("interact");
+      return;
+    }
+    if (input.code === "KeyT") {
+      input.preventDefault?.();
+      selectTool("text");
+      return;
+    }
+    if (input.code === "Digit0" || input.code === "Numpad0") {
+      input.preventDefault?.();
+      fitCanvas();
+    }
+  }
+
+  shortcutHandlerRef.current = handleWorkspaceShortcut;
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      shortcutHandlerRef.current({
+        code: event.code,
+        key: event.key,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+        altKey: event.altKey,
+        repeat: event.repeat,
+        targetIsEditable: isEditableKeyboardTarget(event.target),
+        preventDefault: () => event.preventDefault(),
+      });
+    }
+
+    function handleKeyUp(event: KeyboardEvent) {
+      if (event.code === "Space" && !isEditableKeyboardTarget(event.target)) setPanMode(false);
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, []);
 
   function selectTool(tool: ToolName) {
     activeToolRef.current = tool;

@@ -93,6 +93,7 @@ const editableStyleProperties = new Set([
   "left",
   "flexDirection",
   "flexWrap",
+  "alignContent",
   "rowGap",
   "columnGap",
   "flexGrow",
@@ -925,6 +926,8 @@ function getReactDetails(element) {
 
 function inspectElement(element) {
   const computed = getComputedStyle(element);
+  const authoredStyle = (property, computedValue) =>
+    element.style.getPropertyValue(property) || computedValue;
   const rect = element.getBoundingClientRect();
   return {
     selectionId: element.getAttribute(selectionAttribute),
@@ -932,7 +935,7 @@ function inspectElement(element) {
     id: element.id || null,
     className: typeof element.className === "string" ? element.className : "",
     text: (element.textContent || "").trim().replace(/\s+/g, " ").slice(0, 180),
-    textEditable: element.children.length === 0,
+    textEditable: isTextEditable(element),
     attributes: Object.fromEntries(
       Array.from(element.attributes)
         .filter((attribute) => !["class", "id", selectionAttribute].includes(attribute.name))
@@ -945,10 +948,10 @@ function inspectElement(element) {
       y: Math.round(rect.y * 100) / 100,
     },
     styles: {
-      width: computed.width,
-      height: computed.height,
-      minWidth: computed.minWidth,
-      minHeight: computed.minHeight,
+      width: authoredStyle("width", computed.width),
+      height: authoredStyle("height", computed.height),
+      minWidth: authoredStyle("min-width", computed.minWidth),
+      minHeight: authoredStyle("min-height", computed.minHeight),
       transform: element.style.getPropertyValue("transform") || computed.transform,
       display: computed.display,
       position: computed.position,
@@ -958,11 +961,12 @@ function inspectElement(element) {
       left: computed.left,
       flexDirection: computed.flexDirection,
       flexWrap: computed.flexWrap,
+      alignContent: computed.alignContent,
       rowGap: computed.rowGap,
       columnGap: computed.columnGap,
       flexGrow: computed.flexGrow,
       flexShrink: computed.flexShrink,
-      flexBasis: computed.flexBasis,
+      flexBasis: authoredStyle("flex-basis", computed.flexBasis),
       order: computed.order,
       alignSelf: computed.alignSelf,
       justifySelf: computed.justifySelf,
@@ -976,7 +980,7 @@ function inspectElement(element) {
       gridArea: computed.gridArea,
       overflow: computed.overflow,
       boxSizing: computed.boxSizing,
-      zIndex: computed.zIndex,
+      zIndex: authoredStyle("z-index", computed.zIndex),
       color: computed.color,
       backgroundColor: computed.backgroundColor,
       fontFamily: computed.fontFamily,
@@ -1002,7 +1006,7 @@ function inspectElement(element) {
       borderWidth: computed.borderWidth,
       borderColor: computed.borderColor,
       borderRadius: computed.borderRadius,
-      gap: computed.gap,
+      gap: authoredStyle("gap", computed.gap),
       alignItems: computed.alignItems,
       justifyContent: computed.justifyContent,
     },
@@ -1180,6 +1184,80 @@ window.addEventListener(
     });
   },
   { capture: true, passive: false },
+);
+
+function isEditableKeyboardTarget(target) {
+  return target instanceof HTMLElement && (
+    target.isContentEditable ||
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement
+  );
+}
+
+function isCanvasShortcut(event) {
+  if (event.altKey || event.repeat) return false;
+
+  if (event.code === "Space" && !event.ctrlKey && !event.metaKey) return true;
+
+  const hasModifier = event.ctrlKey || event.metaKey;
+  if (hasModifier) return !event.shiftKey && event.code === "BracketLeft";
+
+  if (event.code === "Equal" || event.code === "NumpadAdd" || event.code === "Minus" || event.code === "NumpadSubtract") return true;
+  if (event.shiftKey) return false;
+
+  return event.code === "KeyS" || event.code === "KeyI" || event.code === "KeyT" || event.code === "Digit0" || event.code === "Numpad0";
+}
+
+window.addEventListener(
+  "keydown",
+  (event) => {
+    const targetIsEditable = Boolean(textEditingState) || isEditableKeyboardTarget(event.target);
+
+    if (event.code === "Escape") {
+      if (textEditingState) {
+        finishTextEditing();
+        event.preventDefault();
+      } else if (selectedElement) {
+        clearSelection();
+        event.preventDefault();
+      }
+      return;
+    }
+
+    if (targetIsEditable || !isCanvasShortcut(event)) return;
+
+    event.preventDefault();
+    ipcRenderer.sendToHost("formia:canvas-keydown", {
+      code: event.code,
+      key: event.key,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+      shiftKey: event.shiftKey,
+      altKey: event.altKey,
+      repeat: event.repeat,
+      targetIsEditable,
+    });
+  },
+  true,
+);
+
+window.addEventListener(
+  "keyup",
+  (event) => {
+    if (event.code !== "Space" || Boolean(textEditingState) || isEditableKeyboardTarget(event.target)) return;
+    ipcRenderer.sendToHost("formia:canvas-keyup", {
+      code: event.code,
+      key: event.key,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+      shiftKey: event.shiftKey,
+      altKey: event.altKey,
+      repeat: event.repeat,
+      targetIsEditable: false,
+    });
+  },
+  true,
 );
 
 ipcRenderer.on("formia:set-tool", (_event, tool) => {

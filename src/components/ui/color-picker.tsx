@@ -252,7 +252,7 @@ export function ColorPicker({ value, onChange, ariaLabel = "Choose color" }: Col
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
-        <Button type="button" variant="ghost" size="icon-xs" className="size-4 shrink-0 rounded-[3px] border-0 p-0 focus-visible:ring-1 focus-visible:ring-foreground/20" style={{ backgroundColor: triggerColor }} aria-label={ariaLabel} />
+        <Button type="button" variant="ghost" size="icon-xs" className="size-4 shrink-0 rounded-[3px] border border-border p-0 focus-visible:ring-1 focus-visible:ring-foreground/20" style={{ backgroundColor: triggerColor }} aria-label={ariaLabel} />
       </PopoverTrigger>
       <PopoverContent side="right" align="start" sideOffset={8} className="w-80 gap-3 rounded-xl border border-border p-3 shadow-lg">
         <HsvaColorPicker
