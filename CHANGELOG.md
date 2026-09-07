@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.0] - 2026-09-08
+
+### Added
+
+- Added Figma-style numeric scrubbing across numeric Properties panel controls, including icon-led typography fields.
+- Added semantic font-family intent for Codex so primary-font changes preserve existing fallback stacks.
+
+### Changed
+
+- Updated the application-wide font stack to use Inter first while retaining system fallbacks.
+- Restyled inset controls to match the integrated labeled size fields.
+- Removed the redundant File, Edit, View, and Help menu from the workspace top bar.
+
 ## [0.8.0] - 2026-09-07
 
 ### Added

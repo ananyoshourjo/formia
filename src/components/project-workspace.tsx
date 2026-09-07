@@ -1,7 +1,7 @@
 "use client";
 
 import { createElement, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { AlignBottomIcon, AlignCenterHorizontalSimpleIcon, AlignCenterVerticalIcon, AlignCenterVerticalSimpleIcon, AngleIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowRightIcon, ArrowsInLineVerticalIcon, ArrowsOutIcon, ArrowsOutLineHorizontalIcon, ArrowsOutLineVerticalIcon, BrowserIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CircleIcon, CircleNotchIcon, ClipboardTextIcon, ColumnsIcon, CompassIcon, CursorIcon, CursorTextIcon, DotIcon, DotsNineIcon, EraserIcon, EyeSlashIcon, FlipHorizontalIcon, FlipVerticalIcon, FrameCornersIcon, GridFourIcon, HandGrabbingIcon, ImageIcon, LinkSimpleIcon, LinkSimpleHorizontalIcon, ListBulletsIcon, ListDashesIcon, ListNumbersIcon, MinusIcon, NavigationArrowIcon, ParagraphIcon, PathIcon, PlusIcon, QuestionIcon, RectangleIcon, RowsIcon, ShapesIcon, SidebarIcon, SidebarSimpleIcon, SquareIcon, StackIcon, TableIcon, TerminalWindowIcon, TextHIcon, TextboxIcon, VideoCameraIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { AlignBottomIcon, AlignCenterHorizontalSimpleIcon, AlignCenterVerticalIcon, AlignCenterVerticalSimpleIcon, AngleIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowRightIcon, ArrowsInLineVerticalIcon, ArrowsOutIcon, ArrowsOutLineHorizontalIcon, ArrowsOutLineVerticalIcon, BrowserIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CircleIcon, CircleNotchIcon, ClipboardTextIcon, ColumnsIcon, CompassIcon, CursorIcon, CursorTextIcon, DotIcon, DotsNineIcon, EraserIcon, EyeSlashIcon, FlipHorizontalIcon, FlipVerticalIcon, FrameCornersIcon, GridFourIcon, HandGrabbingIcon, ImageIcon, LinkSimpleIcon, LinkSimpleHorizontalIcon, ListBulletsIcon, ListDashesIcon, ListNumbersIcon, MinusIcon, NavigationArrowIcon, ParagraphIcon, PathIcon, PlusIcon, RectangleIcon, RowsIcon, ShapesIcon, SidebarIcon, SidebarSimpleIcon, SquareIcon, StackIcon, TableIcon, TerminalWindowIcon, TextHIcon, TextboxIcon, VideoCameraIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
 import { AlignBottomFilled, AlignHorizontalCenterFilled, AlignLeft2Filled, AlignRight2Filled, AlignTopFilled } from "@mingcute/react/core-filled";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
@@ -11,16 +11,11 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuCheckboxItem,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
-  DropdownMenuShortcut,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -55,6 +50,9 @@ type PreviewChange = {
     property?: string;
     from: string;
     to: string;
+    intent?: "replace-primary-font-family";
+    preserveFallbacks?: boolean;
+    primaryFont?: string;
   }>;
 };
 
@@ -142,6 +140,76 @@ const inspectorHeadingClass = "text-[14px] leading-4 font-medium text-foreground
 const inspectorTitleClass = `mb-2 ${inspectorHeadingClass}`;
 const inspectorLabelClass = "text-[12px] leading-4 font-normal text-muted-foreground";
 const inspectorFieldClass = "min-w-0 rounded-[5px] border border-border bg-background px-2 text-[14px] leading-4 text-foreground shadow-none";
+const scrubNumberPattern = /^(-?(?:\d+(?:\.\d*)?|\.\d+))([a-z%]*)$/i;
+
+function numericScrubValue(value: string | undefined, allowUnit = false) {
+  const match = value?.trim().match(scrubNumberPattern);
+  if (!match || (!allowUnit && match[2])) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function scrubPrecision(step: number) {
+  const decimal = String(step).split(".")[1]?.length || 0;
+  return 10 ** decimal;
+}
+
+function formatScrubValue(value: number, step: number) {
+  const precision = scrubPrecision(step);
+  return String(Math.round(value * precision) / precision);
+}
+
+function useNumericScrub<T extends HTMLElement>({ value, onScrub, step = 1, allowUnit = false, preventDefaultOnStart = false }: { value: string | undefined; onScrub: (value: string) => void; step?: number; allowUnit?: boolean; preventDefaultOnStart?: boolean }) {
+  const scrubStart = useRef<{ pointerId: number; startX: number; startValue: number; lastValue: number } | null>(null);
+  const initialValue = numericScrubValue(value, allowUnit);
+  const canScrub = initialValue !== null;
+
+  function handlePointerDown(event: ReactPointerEvent<T>) {
+    if (!canScrub || initialValue === null || event.button !== 0) return;
+    scrubStart.current = { pointerId: event.pointerId, startX: event.clientX, startValue: initialValue, lastValue: initialValue };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    if (preventDefaultOnStart) event.preventDefault();
+  }
+
+  function handlePointerMove(event: ReactPointerEvent<T>) {
+    const start = scrubStart.current;
+    if (!start || start.pointerId !== event.pointerId) return;
+    const modifier = event.shiftKey ? 0.1 : event.altKey ? 10 : 1;
+    const activeStep = step * modifier;
+    const nextValue = Math.round((start.startValue + (event.clientX - start.startX) * activeStep) / activeStep) * activeStep;
+    if (nextValue === start.lastValue) return;
+    start.lastValue = nextValue;
+    event.preventDefault();
+    onScrub(formatScrubValue(nextValue, activeStep));
+  }
+
+  function handlePointerEnd(event: ReactPointerEvent<T>) {
+    if (scrubStart.current?.pointerId !== event.pointerId) return;
+    scrubStart.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  return { canScrub, handlePointerDown, handlePointerMove, handlePointerEnd };
+}
+
+function NumericScrubLabel({ children, htmlFor, name, value, onScrub, step = 1, allowUnit = false, className }: { children: React.ReactNode; htmlFor?: string; name: string; value: string | undefined; onScrub: (value: string) => void; step?: number; allowUnit?: boolean; className?: string }) {
+  const scrub = useNumericScrub<HTMLLabelElement>({ value, onScrub, step, allowUnit, preventDefaultOnStart: true });
+  const scrubClassName = scrub.canScrub ? "cursor-ew-resize select-none [&_svg]:cursor-ew-resize" : "";
+
+  return (
+    <Hint content={scrub.canScrub ? `${name} — drag to adjust` : name}>
+      <label htmlFor={htmlFor} className={`${className || ""} ${scrubClassName}`} onPointerDown={scrub.handlePointerDown} onPointerMove={scrub.handlePointerMove} onPointerUp={scrub.handlePointerEnd} onPointerCancel={scrub.handlePointerEnd}>
+        {children}
+      </label>
+    </Hint>
+  );
+}
+
+function NumericScrubInput({ value, onScrub, step = 1, allowUnit = false, className, ...props }: Omit<React.ComponentProps<"input">, "value"> & { value: string; onScrub: (value: string) => void; step?: number; allowUnit?: boolean }) {
+  const scrub = useNumericScrub<HTMLInputElement>({ value, onScrub, step, allowUnit });
+
+  return <Input {...props} value={value} className={`${className || ""} ${scrub.canScrub ? "cursor-ew-resize" : ""}`} onPointerDown={scrub.handlePointerDown} onPointerMove={scrub.handlePointerMove} onPointerUp={scrub.handlePointerEnd} onPointerCancel={scrub.handlePointerEnd} />;
+}
 
 function PropertyGroup({ title, values }: { title: string; values: Record<string, unknown> }) {
   const entries = Object.entries(values);
@@ -242,7 +310,41 @@ const defaultFontFamilies = [
 ] as const;
 
 function firstFontFamily(value: string | undefined) {
-  return value?.split(",")[0]?.trim().replace(/^['"]|['"]$/g, "") || "";
+  const normalized = value?.trim() || "";
+  let quote = "";
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    const character = normalized[index];
+    if ((character === "'" || character === '"') && normalized[index - 1] !== "\\") {
+      quote = quote === character ? "" : quote || character;
+    } else if (character === "," && !quote) {
+      return normalized.slice(0, index).trim().replace(/^['"]|['"]$/g, "");
+    }
+  }
+
+  return normalized.replace(/^['"]|['"]$/g, "");
+}
+
+function replacePrimaryFontFamily(value: string | undefined, nextFamily: string) {
+  const normalizedNextFamily = nextFamily.trim();
+  if (!normalizedNextFamily) return value || "";
+
+  const currentValue = value?.trim() || "";
+  let quote = "";
+  let separatorIndex = -1;
+
+  for (let index = 0; index < currentValue.length; index += 1) {
+    const character = currentValue[index];
+    if ((character === "'" || character === '"') && currentValue[index - 1] !== "\\") {
+      quote = quote === character ? "" : quote || character;
+    } else if (character === "," && !quote) {
+      separatorIndex = index;
+      break;
+    }
+  }
+
+  const primary = /[\s,]/.test(normalizedNextFamily) ? `"${normalizedNextFamily.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"` : normalizedNextFamily;
+  return `${primary}${separatorIndex >= 0 ? currentValue.slice(separatorIndex) : ""}`;
 }
 
 function FontPickerField({ selection, onApplyStyle, onResetStyle }: { selection: SelectedElement; onApplyStyle: (property: string, value: string) => void; onResetStyle: (property: string) => void }) {
@@ -269,7 +371,7 @@ function FontPickerField({ selection, onApplyStyle, onResetStyle }: { selection:
   return (
     <DropdownMenu>
       <div className="group relative grid h-7 min-w-0 grid-cols-[minmax(0,1fr)_1.5rem] items-center rounded-[5px] border border-border bg-background px-2 transition-colors hover:bg-muted/30 focus-within:bg-muted/25 focus-within:ring-1 focus-within:ring-foreground/5">
-        <Input id="typography-font-family" value={currentValue} aria-label="Edit font family" className="h-4 min-w-0 w-full overflow-hidden text-ellipsis whitespace-nowrap rounded-none border-0 bg-transparent p-0 pr-1 text-[14px] leading-4 font-normal shadow-none focus-visible:ring-0" onChange={(event) => onApplyStyle("fontFamily", event.currentTarget.value)} />
+        <Input id="typography-font-family" value={currentFamily} aria-label="Edit primary font family" className="h-4 min-w-0 w-full overflow-hidden text-ellipsis whitespace-nowrap rounded-none border-0 bg-transparent p-0 pr-1 text-[14px] leading-4 font-normal shadow-none focus-visible:ring-0" onChange={(event) => onApplyStyle("fontFamily", replacePrimaryFontFamily(currentValue, event.currentTarget.value))} />
         <Hint content="Choose installed font">
           <DropdownMenuTrigger asChild>
             <Button type="button" variant="ghost" size="icon-xs" className="absolute right-0.5 top-1/2 size-5 -translate-y-1/2 rounded p-0 text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/10" aria-label="Choose installed font">
@@ -285,7 +387,7 @@ function FontPickerField({ selection, onApplyStyle, onResetStyle }: { selection:
       </div>
       <DropdownMenuContent align="start" sideOffset={4} className="max-h-72 min-w-[16rem] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
         <DropdownMenuLabel className="px-2 py-1 text-[11px]">Installed fonts</DropdownMenuLabel>
-        <DropdownMenuRadioGroup value={availableFonts.includes(currentFamily) ? currentFamily : ""} onValueChange={(font) => onApplyStyle("fontFamily", font)}>
+        <DropdownMenuRadioGroup value={availableFonts.includes(currentFamily) ? currentFamily : ""} onValueChange={(font) => onApplyStyle("fontFamily", replacePrimaryFontFamily(currentValue, font))}>
           {availableFonts.map((font) => (
             <DropdownMenuRadioItem key={font} value={font} className="rounded-[3px] px-2 py-1 text-[14px]" style={{ fontFamily: `"${font}"` }}>
               {font}
@@ -357,7 +459,7 @@ function TypographyMetricField({
 
   return (
     <div className="group relative grid h-7 min-w-0 grid-cols-[1.75rem_minmax(0,1fr)] items-center rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:bg-muted/25 focus-within:ring-1 focus-within:ring-foreground/5">
-      <Hint content={name}><label htmlFor={`typography-${name}`} className="grid size-3.5 place-items-center text-muted-foreground [&>svg]:block"><HugeiconsIcon icon={icon} size={15} strokeWidth={1.8} /></label></Hint>
+      <NumericScrubLabel htmlFor={`typography-${name}`} name={name} value={parsed.inputValue} onScrub={commitInput} step={name === "line-height" ? 0.1 : 1} allowUnit className="grid size-3.5 place-items-center text-muted-foreground [&>svg]:block"><HugeiconsIcon icon={icon} size={15} strokeWidth={1.8} /></NumericScrubLabel>
       <Input
         id={`typography-${name}`}
         value={parsed.inputValue}
@@ -436,7 +538,7 @@ function TypographyWeightField({ value, onCommit }: { value: string | undefined;
   return (
     <DropdownMenu>
       <div className="group relative grid h-7 min-w-0 grid-cols-[1.25rem_minmax(0,1fr)_1.5rem] items-center gap-1 rounded-[5px] border border-border bg-background px-2 transition-colors hover:bg-muted/30 focus-within:bg-muted/25 focus-within:ring-1 focus-within:ring-foreground/5">
-        <Hint content="font-weight"><label htmlFor="typography-font-weight" className="grid size-3.5 place-items-center text-muted-foreground"><HugeiconsIcon icon={TextVariableFrontIcon} size={15} strokeWidth={1.8} /></label></Hint>
+        <NumericScrubLabel htmlFor="typography-font-weight" name="font-weight" value={currentValue} onScrub={onCommit} className="grid size-3.5 place-items-center text-muted-foreground"><HugeiconsIcon icon={TextVariableFrontIcon} size={15} strokeWidth={1.8} /></NumericScrubLabel>
         <Input id="typography-font-weight" value={currentValue} aria-label="Edit font weight" className="h-4 min-w-0 w-full overflow-hidden text-ellipsis whitespace-nowrap appearance-none rounded-none border-0 bg-transparent p-0 text-[14px] leading-4 font-normal tabular-nums shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[14px]" onChange={(event) => onCommit(event.currentTarget.value)} />
         <Hint content="Choose font weight">
           <DropdownMenuTrigger asChild>
@@ -646,7 +748,7 @@ function CompactLayoutField({
   if (!isInline) {
     return (
       <div className="space-y-1">
-        <Hint content={name}><label htmlFor={`layout-${name}`} className={inspectorLabelClass}>{label}</label></Hint>
+        <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={value} onScrub={onCommit} className={inspectorLabelClass}>{label}</NumericScrubLabel>
         <div className="group relative flex h-7 min-w-0 items-center rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5">
           {controlContents}
         </div>
@@ -656,7 +758,7 @@ function CompactLayoutField({
 
   return (
     <div className={`group relative grid h-7 min-w-0 items-center rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5 ${wideLabel ? "grid-cols-[1.75rem_minmax(0,1fr)_auto]" : "grid-cols-[0.875rem_minmax(0,1fr)_auto] gap-x-2"}`}>
-      <Hint content={name}><label htmlFor={`layout-${name}`} className={`${wideLabel ? "text-left" : "grid size-3.5 place-items-center"} text-[14px] leading-none font-normal text-muted-foreground [&>svg]:block`}>{label}</label></Hint>
+      <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={value} onScrub={onCommit} className={`${wideLabel ? "text-left" : "grid size-3.5 place-items-center"} text-[14px] leading-none font-normal text-muted-foreground [&>svg]:block`}>{label}</NumericScrubLabel>
       {controlContents}
     </div>
   );
@@ -678,7 +780,7 @@ function GridPlacementField({ label, name, value, onCommit, onReset }: { label: 
   return (
     <DropdownMenu>
       <div className="space-y-1">
-        <Hint content={name}><label htmlFor={`layout-${name}`} className={inspectorLabelClass}>{label}</label></Hint>
+        <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={value} onScrub={onCommit} className={inspectorLabelClass}>{label}</NumericScrubLabel>
         <div className="group relative flex h-7 min-w-0 items-center rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5">
           <Input id={`layout-${name}`} value={value} aria-label={`Edit ${name}`} className="h-4 min-w-0 w-full overflow-hidden text-ellipsis whitespace-nowrap appearance-none rounded-none border-0 bg-transparent p-0 pr-8 text-[14px] leading-4 font-normal tabular-nums shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[14px]" onChange={(event) => onCommit(event.currentTarget.value)} />
           <Hint content={`Reset ${name}`}>
@@ -809,7 +911,7 @@ function SizingLayoutField({
   const field = (
     <DropdownMenu>
       <div className={`group relative min-w-0 rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5 ${isInline ? `grid h-7 items-center ${compactLabel ? "grid-cols-[0.875rem_minmax(0,1fr)] gap-x-2" : "grid-cols-[1.75rem_minmax(0,1fr)]"}` : "flex h-7 items-center"}`}>
-        {isInline ? <Hint content={name}><label htmlFor={`layout-${name}`} className={`${compactLabel ? "grid size-3.5 place-items-center [&>svg]:block" : ""} text-[14px] leading-4 font-normal text-muted-foreground`}>{label}</label></Hint> : null}
+        {isInline ? <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={parsed.inputValue} onScrub={(nextValue) => onCommit(nextValue, parsed.unit)} allowUnit className={`${compactLabel ? "grid size-3.5 place-items-center [&>svg]:block" : ""} text-[14px] leading-4 font-normal text-muted-foreground`}>{label}</NumericScrubLabel> : null}
         <Input
           id={`layout-${name}`}
           value={parsed.inputValue}
@@ -851,7 +953,7 @@ function SizingLayoutField({
   if (!isInline && !hideLabel) {
     return (
       <div className="space-y-1">
-        <Hint content={name}><label htmlFor={`layout-${name}`} className={inspectorLabelClass}>{label}</label></Hint>
+        <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={parsed.inputValue} onScrub={(nextValue) => onCommit(nextValue, parsed.unit)} allowUnit className={inspectorLabelClass}>{label}</NumericScrubLabel>
         {field}
       </div>
     );
@@ -941,11 +1043,12 @@ function SpacingField({
 }) {
   return (
     <div className={`group flex min-w-0 items-center justify-center ${className}`}>
-      <Input
+      <NumericScrubInput
         id={`spacing-${property}`}
         value={spacingInputValue(value)}
         aria-label={`${label} ${property}`}
         className="h-5 w-8 rounded-[3px] border-transparent bg-transparent px-0.5 text-center text-[11px] font-normal tabular-nums shadow-none hover:border-border hover:bg-background focus-visible:border-border focus-visible:bg-background focus-visible:ring-1 focus-visible:ring-foreground/5"
+        onScrub={(nextValue) => onCommit(property, nextValue, value)}
         onChange={(event) => onCommit(property, event.currentTarget.value, value)}
       />
     </div>
@@ -1187,6 +1290,7 @@ function LayoutGroup({
   const nextTransformId = useRef(transforms.length + 1);
   const [aspectRatioLocked, setAspectRatioLocked] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<number | null>(null);
+  const [moreOptionsOpen, setMoreOptionsOpen] = useState(false);
 
   function commitTransforms(nextTransforms: TransformItem[]) {
     setTransforms(nextTransforms);
@@ -1327,7 +1431,7 @@ function LayoutGroup({
           </div>
         </div>
 
-        {isFlexContainer || isFlexItem ? (
+        {isFlexContainer || (isFlexItem && moreOptionsOpen) ? (
           <div className="mt-2 space-y-2 pt-2">
             {isFlexContainer ? (
               <div className="space-y-2">
@@ -1405,7 +1509,7 @@ function LayoutGroup({
                 </div>
               </div>
             ) : null}
-            {isFlexItem ? (
+            {isFlexItem && moreOptionsOpen ? (
               <div className="space-y-1">
                 <div className="grid grid-cols-2 gap-1">
                   <CompactLayoutField label="Grow" name="flex-grow" value={selection.styles.flexGrow} onCommit={(value) => onApplyStyle("flexGrow", value)} onReset={() => onResetStyle("flexGrow")} />
@@ -1425,7 +1529,7 @@ function LayoutGroup({
             ) : null}
           </div>
         ) : null}
-        {isGridContainer || isGridItem ? (
+        {(isGridContainer || isGridItem) && moreOptionsOpen ? (
           <div className="mt-2 space-y-2 pt-2">
             {isGridContainer ? (
               <div className="space-y-1">
@@ -1444,7 +1548,7 @@ function LayoutGroup({
                 ]} onChange={(value) => onApplyStyle("gridAutoFlow", value)} />
               </div>
             ) : null}
-      {isGridItem ? (
+      {isGridItem && moreOptionsOpen ? (
         <div className="space-y-1">
                 <div className="grid grid-cols-2 gap-1">
                   <GridPlacementField label="Column start" name="grid-column-start" value={selection.styles.gridColumnStart} onCommit={(value) => onApplyStyle("gridColumnStart", value)} onReset={() => onResetStyle("gridColumnStart")} />
@@ -1470,8 +1574,15 @@ function LayoutGroup({
             ) : null}
           </div>
         ) : null}
+        {!moreOptionsOpen ? (
+          <Button type="button" variant="outline" className="h-7 w-full rounded-[5px] px-2 text-[13px] font-normal shadow-none hover:bg-muted/30 focus-visible:ring-1 focus-visible:ring-foreground/5" onClick={() => setMoreOptionsOpen(true)}>
+            More options
+          </Button>
+        ) : null}
         <div className="space-y-2">
-          <LayoutSelectField label="Box sizing" name="box-sizing" value={selection.styles.boxSizing} options={boxSizingOptions} onChange={(value) => onApplyStyle("boxSizing", value)} />
+          {moreOptionsOpen ? (
+            <LayoutSelectField label="Box sizing" name="box-sizing" value={selection.styles.boxSizing} options={boxSizingOptions} onChange={(value) => onApplyStyle("boxSizing", value)} />
+          ) : null}
           <div className="space-y-1">
           <LayoutLabel>Positioning</LayoutLabel>
           <Select value={positionMode} onValueChange={(value) => onApplyStyle("position", value)}>
@@ -1489,10 +1600,10 @@ function LayoutGroup({
             <div className="space-y-1 pt-1">
               <LayoutLabel>Inset</LayoutLabel>
               <div className="grid grid-cols-2 gap-1">
-                <SizingLayoutField label="T" name="top" value={selection.styles.top} fallback={0} keywordOptions={insetKeywords} onCommit={(value, unit) => commitInset("top", value, unit)} onReset={() => onResetStyle("top")} />
-                <SizingLayoutField label="B" name="bottom" value={selection.styles.bottom} fallback={0} keywordOptions={insetKeywords} onCommit={(value, unit) => commitInset("bottom", value, unit)} onReset={() => onResetStyle("bottom")} />
-                <SizingLayoutField label="R" name="right" value={selection.styles.right} fallback={0} keywordOptions={insetKeywords} onCommit={(value, unit) => commitInset("right", value, unit)} onReset={() => onResetStyle("right")} />
-                <SizingLayoutField label="L" name="left" value={selection.styles.left} fallback={0} keywordOptions={insetKeywords} onCommit={(value, unit) => commitInset("left", value, unit)} onReset={() => onResetStyle("left")} />
+                <SizingLayoutField label="T" name="top" value={selection.styles.top} fallback={0} keywordOptions={insetKeywords} inlineLabel onCommit={(value, unit) => commitInset("top", value, unit)} onReset={() => onResetStyle("top")} />
+                <SizingLayoutField label="B" name="bottom" value={selection.styles.bottom} fallback={0} keywordOptions={insetKeywords} inlineLabel onCommit={(value, unit) => commitInset("bottom", value, unit)} onReset={() => onResetStyle("bottom")} />
+                <SizingLayoutField label="R" name="right" value={selection.styles.right} fallback={0} keywordOptions={insetKeywords} inlineLabel onCommit={(value, unit) => commitInset("right", value, unit)} onReset={() => onResetStyle("right")} />
+                <SizingLayoutField label="L" name="left" value={selection.styles.left} fallback={0} keywordOptions={insetKeywords} inlineLabel onCommit={(value, unit) => commitInset("left", value, unit)} onReset={() => onResetStyle("left")} />
               </div>
               {positionMode === "absolute" || positionMode === "fixed" ? (
                 <div className="flex items-center justify-between px-1 text-[11px] leading-4">
@@ -1936,9 +2047,6 @@ function WorkspaceTopbar({
   onToggleSidebars,
   onBack,
   onForward,
-  onBackToProjects,
-  onResetPreview,
-  onFitCanvas,
 }: {
   sidebarsVisible: boolean;
   canGoBack: boolean;
@@ -1946,13 +2054,7 @@ function WorkspaceTopbar({
   onToggleSidebars: () => void;
   onBack: () => void;
   onForward: () => void;
-  onBackToProjects: () => void;
-  onResetPreview: () => void;
-  onFitCanvas: () => void;
 }) {
-  const menuTriggerClass = "formia-no-drag h-7 rounded-[5px] px-2 text-[13px] text-foreground hover:bg-muted";
-  const menuItemClass = "rounded-[4px] px-2 py-1.5 text-[13px]";
-
   return (
     <header className="formia-titlebar z-40 flex h-10 shrink-0 items-center border-b border-border bg-white pl-2 text-foreground">
       <div className="flex items-center gap-0.5">
@@ -1972,88 +2074,8 @@ function WorkspaceTopbar({
           </Button>
         </Hint>
       </div>
-
-      <div className="mx-2 h-5 w-px bg-border" />
-
-      <nav className="flex items-center gap-0.5" aria-label="Application menu">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button type="button" variant="ghost" size="xs" className={menuTriggerClass}>File</Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-48">
-            <DropdownMenuItem className={menuItemClass} onSelect={onBackToProjects}>
-              <ArrowLeftIcon />
-              Back to projects
-              <DropdownMenuShortcut>Ctrl+[</DropdownMenuShortcut>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button type="button" variant="ghost" size="xs" className={menuTriggerClass}>Edit</Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-48">
-            <DropdownMenuItem className={menuItemClass} onSelect={onResetPreview}>
-              <ArrowCounterClockwiseIcon />
-              Reset preview
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button type="button" variant="ghost" size="xs" className={menuTriggerClass}>View</Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-52">
-            <DropdownMenuCheckboxItem className={menuItemClass} checked={sidebarsVisible} onCheckedChange={() => onToggleSidebars()}>
-              <SidebarSimpleIcon />
-              Show sidebars
-            </DropdownMenuCheckboxItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className={menuItemClass} onSelect={onFitCanvas}>
-              <ArrowsOutIcon />
-              Fit artboard
-              <DropdownMenuShortcut>0</DropdownMenuShortcut>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button type="button" variant="ghost" size="xs" className={menuTriggerClass}>Help</Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-48">
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger className={menuItemClass}>
-                <QuestionIcon />
-                Keyboard shortcuts
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="min-w-64">
-                <DropdownMenuLabel>Workspace</DropdownMenuLabel>
-                <ShortcutRow label="Select" shortcut="S" />
-                <ShortcutRow label="Interact" shortcut="I" />
-                <ShortcutRow label="Text" shortcut="T" />
-                <ShortcutRow label="Pan canvas" shortcut="Space" />
-                <ShortcutRow label="Fit artboard" shortcut="0" />
-                <ShortcutRow label="Zoom in / out" shortcut="+ / -" />
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel>Navigation</DropdownMenuLabel>
-                <ShortcutRow label="Back to projects" shortcut="Ctrl+[" />
-                <ShortcutRow label="Cancel or clear selection" shortcut="Esc" />
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </nav>
       <WindowControls />
     </header>
-  );
-}
-
-function ShortcutRow({ label, shortcut }: { label: string; shortcut: string }) {
-  return (
-    <div className="flex items-center gap-3 px-2 py-1.5 text-[13px]">
-      <span>{label}</span>
-      <span className="ml-auto text-xs tracking-widest text-muted-foreground">{shortcut}</span>
-    </div>
   );
 }
 
@@ -2787,9 +2809,6 @@ export function ProjectWorkspace({
         onToggleSidebars={() => setSidebarsVisible((visible) => !visible)}
         onBack={navigateBack}
         onForward={navigateForward}
-        onBackToProjects={goBack}
-        onResetPreview={resetPreview}
-        onFitCanvas={fitCanvas}
       />
       <div className="min-h-0 flex flex-1">
         <LayerPanel

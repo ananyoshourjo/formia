@@ -1027,12 +1027,18 @@ function collectPreviewChanges() {
       const current = element.style.getPropertyValue(cssName);
       const currentPriority = element.style.getPropertyPriority(cssName);
       if (current !== original.value || currentPriority !== original.priority) {
-        changes.push({
+        const change = {
           kind: "style",
           property: cssName,
           from: original.value || "(not set)",
           to: current || "(not set)",
-        });
+        };
+        if (cssName === "font-family") {
+          change.intent = "replace-primary-font-family";
+          change.preserveFallbacks = true;
+          change.primaryFont = current.split(",")[0]?.trim().replace(/^['"]|['"]$/g, "") || "";
+        }
+        changes.push(change);
       }
     }
 
