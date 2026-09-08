@@ -1,7 +1,7 @@
 "use client";
 
-import { createElement, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { AlignBottomIcon, AlignCenterHorizontalSimpleIcon, AlignCenterVerticalIcon, AlignCenterVerticalSimpleIcon, AngleIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowRightIcon, ArrowsInLineVerticalIcon, ArrowsOutIcon, ArrowsOutLineHorizontalIcon, ArrowsOutLineVerticalIcon, BrowserIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CircleIcon, CircleNotchIcon, ClipboardTextIcon, ColumnsIcon, CompassIcon, CursorIcon, CursorTextIcon, DotIcon, DotsNineIcon, EraserIcon, EyeSlashIcon, FlipHorizontalIcon, FlipVerticalIcon, FrameCornersIcon, GridFourIcon, HandGrabbingIcon, ImageIcon, LinkSimpleIcon, LinkSimpleHorizontalIcon, ListBulletsIcon, ListDashesIcon, ListNumbersIcon, MinusIcon, NavigationArrowIcon, ParagraphIcon, PathIcon, PlusIcon, RectangleIcon, RowsIcon, ShapesIcon, SidebarIcon, SidebarSimpleIcon, SquareIcon, StackIcon, TableIcon, TerminalWindowIcon, TextHIcon, TextboxIcon, VideoCameraIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { createElement, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { AlignBottomIcon, AlignCenterHorizontalSimpleIcon, AlignCenterVerticalIcon, AlignCenterVerticalSimpleIcon, AngleIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowLineRightIcon, ArrowLineUpIcon, ArrowRightIcon, ArrowsInLineVerticalIcon, ArrowsOutIcon, ArrowsOutLineHorizontalIcon, ArrowsOutLineVerticalIcon, BoundingBoxIcon, BrowserIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CircleIcon, CircleNotchIcon, ClipboardTextIcon, ColumnsIcon, CompassIcon, CornersOutIcon, CrosshairSimpleIcon, CursorIcon, CursorTextIcon, DotIcon, DotsNineIcon, EraserIcon, EyeIcon, EyeSlashIcon, FlipHorizontalIcon, FlipVerticalIcon, FrameCornersIcon, GearSixIcon, GitCommitIcon, GridFourIcon, HandGrabbingIcon, ImageIcon, LinkSimpleIcon, LinkSimpleHorizontalIcon, ListBulletsIcon, ListDashesIcon, ListNumbersIcon, MinusIcon, MouseScrollIcon, NavigationArrowIcon, ParagraphIcon, PathIcon, PlusIcon, PushPinIcon, RectangleIcon, RowsIcon, ShapesIcon, SidebarIcon, SidebarSimpleIcon, SplitHorizontalIcon, SplitVerticalIcon, SquareIcon, StackIcon, StackSimpleIcon, TableIcon, TerminalWindowIcon, TextHIcon, TextboxIcon, VideoCameraIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
 import { AlignBottomFilled, AlignHorizontalCenterFilled, AlignLeft2Filled, AlignRight2Filled, AlignTopFilled } from "@mingcute/react/core-filled";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
@@ -48,6 +48,7 @@ type PreviewChange = {
   changes: Array<{
     kind: "style" | "class" | "text" | "structure";
     property?: string;
+    operation?: "move" | "delete" | "duplicate";
     from: string;
     to: string;
     intent?: "replace-primary-font-family";
@@ -161,32 +162,71 @@ function formatScrubValue(value: number, step: number) {
 
 function useNumericScrub<T extends HTMLElement>({ value, onScrub, step = 1, allowUnit = false, preventDefaultOnStart = false }: { value: string | undefined; onScrub: (value: string) => void; step?: number; allowUnit?: boolean; preventDefaultOnStart?: boolean }) {
   const scrubStart = useRef<{ pointerId: number; startX: number; startValue: number; lastValue: number } | null>(null);
+  const scrubTarget = useRef<T | null>(null);
+  const cleanupListeners = useRef<(() => void) | null>(null);
   const initialValue = numericScrubValue(value, allowUnit);
   const canScrub = initialValue !== null;
 
+  useEffect(() => () => {
+    cleanupListeners.current?.();
+  }, []);
+
+  function updateScrub(clientX: number, shiftKey: boolean, altKey: boolean) {
+    const start = scrubStart.current;
+    if (!start) return;
+    const modifier = shiftKey ? 0.1 : altKey ? 10 : 1;
+    const activeStep = step * modifier;
+    const nextValue = Math.round((start.startValue + (clientX - start.startX) * activeStep) / activeStep) * activeStep;
+    if (nextValue === start.lastValue) return;
+    start.lastValue = nextValue;
+    onScrub(formatScrubValue(nextValue, activeStep));
+  }
+
+  function finishScrub(pointerId: number) {
+    if (scrubStart.current?.pointerId !== pointerId) return;
+    scrubStart.current = null;
+    const target = scrubTarget.current;
+    scrubTarget.current = null;
+    cleanupListeners.current?.();
+    if (target?.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId);
+  }
+
   function handlePointerDown(event: ReactPointerEvent<T>) {
     if (!canScrub || initialValue === null || event.button !== 0) return;
+    cleanupListeners.current?.();
     scrubStart.current = { pointerId: event.pointerId, startX: event.clientX, startValue: initialValue, lastValue: initialValue };
+    scrubTarget.current = event.currentTarget;
     event.currentTarget.setPointerCapture(event.pointerId);
     if (preventDefaultOnStart) event.preventDefault();
+
+    const handleWindowMove = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== event.pointerId) return;
+      updateScrub(moveEvent.clientX, moveEvent.shiftKey, moveEvent.altKey);
+      moveEvent.preventDefault();
+    };
+    const handleWindowEnd = (endEvent: PointerEvent) => {
+      if (endEvent.pointerId === event.pointerId) finishScrub(endEvent.pointerId);
+    };
+    cleanupListeners.current = () => {
+      window.removeEventListener("pointermove", handleWindowMove);
+      window.removeEventListener("pointerup", handleWindowEnd);
+      window.removeEventListener("pointercancel", handleWindowEnd);
+      cleanupListeners.current = null;
+    };
+    window.addEventListener("pointermove", handleWindowMove);
+    window.addEventListener("pointerup", handleWindowEnd);
+    window.addEventListener("pointercancel", handleWindowEnd);
   }
 
   function handlePointerMove(event: ReactPointerEvent<T>) {
     const start = scrubStart.current;
     if (!start || start.pointerId !== event.pointerId) return;
-    const modifier = event.shiftKey ? 0.1 : event.altKey ? 10 : 1;
-    const activeStep = step * modifier;
-    const nextValue = Math.round((start.startValue + (event.clientX - start.startX) * activeStep) / activeStep) * activeStep;
-    if (nextValue === start.lastValue) return;
-    start.lastValue = nextValue;
+    updateScrub(event.clientX, event.shiftKey, event.altKey);
     event.preventDefault();
-    onScrub(formatScrubValue(nextValue, activeStep));
   }
 
   function handlePointerEnd(event: ReactPointerEvent<T>) {
-    if (scrubStart.current?.pointerId !== event.pointerId) return;
-    scrubStart.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    finishScrub(event.pointerId);
   }
 
   return { canScrub, handlePointerDown, handlePointerMove, handlePointerEnd };
@@ -198,17 +238,56 @@ function NumericScrubLabel({ children, htmlFor, name, value, onScrub, step = 1, 
 
   return (
     <Hint content={scrub.canScrub ? `${name} — drag to adjust` : name}>
-      <label htmlFor={htmlFor} className={`${className || ""} ${scrubClassName}`} onPointerDown={scrub.handlePointerDown} onPointerMove={scrub.handlePointerMove} onPointerUp={scrub.handlePointerEnd} onPointerCancel={scrub.handlePointerEnd}>
+      <label htmlFor={htmlFor} className={`${className || ""} ${scrubClassName}`} onPointerDown={scrub.handlePointerDown} onPointerUp={scrub.handlePointerEnd} onPointerCancel={scrub.handlePointerEnd}>
         {children}
       </label>
     </Hint>
   );
 }
 
-function NumericScrubInput({ value, onScrub, step = 1, allowUnit = false, className, ...props }: Omit<React.ComponentProps<"input">, "value"> & { value: string; onScrub: (value: string) => void; step?: number; allowUnit?: boolean }) {
-  const scrub = useNumericScrub<HTMLInputElement>({ value, onScrub, step, allowUnit });
+function useMouseScrub({ value, onScrub, step = 1 }: { value: string; onScrub: (value: string) => void; step?: number }) {
+  const scrubStart = useRef<{ startX: number; startValue: number; lastValue: number } | null>(null);
+  const cleanupListeners = useRef<(() => void) | null>(null);
+  const initialValue = numericScrubValue(value);
+  const canScrub = initialValue !== null;
 
-  return <Input {...props} value={value} className={`${className || ""} ${scrub.canScrub ? "cursor-ew-resize" : ""}`} onPointerDown={scrub.handlePointerDown} onPointerMove={scrub.handlePointerMove} onPointerUp={scrub.handlePointerEnd} onPointerCancel={scrub.handlePointerEnd} />;
+  useEffect(() => () => {
+    cleanupListeners.current?.();
+  }, []);
+
+  function finishScrub() {
+    scrubStart.current = null;
+    cleanupListeners.current?.();
+  }
+
+  function handleMouseDown(event: React.MouseEvent<HTMLDivElement>) {
+    if (!canScrub || initialValue === null || event.button !== 0) return;
+    cleanupListeners.current?.();
+    scrubStart.current = { startX: event.clientX, startValue: initialValue, lastValue: initialValue };
+    event.preventDefault();
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const start = scrubStart.current;
+      if (!start) return;
+      const modifier = moveEvent.shiftKey ? 0.1 : moveEvent.altKey ? 10 : 1;
+      const activeStep = step * modifier;
+      const nextValue = Math.round((start.startValue + (moveEvent.clientX - start.startX) * activeStep) / activeStep) * activeStep;
+      if (nextValue === start.lastValue) return;
+      start.lastValue = nextValue;
+      moveEvent.preventDefault();
+      onScrub(formatScrubValue(nextValue, activeStep));
+    };
+    const handleMouseUp = () => finishScrub();
+    cleanupListeners.current = () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      cleanupListeners.current = null;
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  }
+
+  return { canScrub, handleMouseDown };
 }
 
 function PropertyGroup({ title, values }: { title: string; values: Record<string, unknown> }) {
@@ -248,9 +327,23 @@ function ContentGroup({
   onReset: () => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const pendingSelection = useRef<{ value: string; start: number | null; end: number | null } | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     resizeContentTextarea(textareaRef.current);
+  }, [value]);
+
+  useLayoutEffect(() => {
+    const pending = pendingSelection.current;
+    const textarea = textareaRef.current;
+    if (!pending) return;
+    pendingSelection.current = null;
+    if (!textarea || document.activeElement !== textarea) return;
+
+    const offset = textarea.value.length - pending.value.length;
+    const start = pending.start === null ? null : Math.max(0, Math.min(textarea.value.length, pending.start + offset));
+    const end = pending.end === null ? null : Math.max(0, Math.min(textarea.value.length, pending.end + offset));
+    if (start !== null && end !== null) textarea.setSelectionRange(start, end);
   }, [value]);
 
   return (
@@ -264,8 +357,16 @@ function ContentGroup({
           aria-label="Edit content"
           className={`${inspectorFieldClass} block h-7 w-full resize-none overflow-hidden py-1 pr-7 font-normal transition-colors hover:bg-muted/30 focus:bg-muted/25 focus:outline-none focus:ring-1 focus:ring-foreground/5`}
           onChange={(event) => {
+            pendingSelection.current = {
+              value: event.currentTarget.value,
+              start: event.currentTarget.selectionStart,
+              end: event.currentTarget.selectionEnd,
+            };
             onCommit(event.currentTarget.value);
             resizeContentTextarea(event.currentTarget);
+          }}
+          onBlur={() => {
+            pendingSelection.current = null;
           }}
         />
         <Hint content="Reset content">
@@ -347,6 +448,10 @@ function replacePrimaryFontFamily(value: string | undefined, nextFamily: string)
   return `${primary}${separatorIndex >= 0 ? currentValue.slice(separatorIndex) : ""}`;
 }
 
+function fontFamilyStyleValue(font: string) {
+  return /^[a-z][a-z0-9-]*$/i.test(font) ? font : `"${font.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
 function FontPickerField({ selection, onApplyStyle, onResetStyle }: { selection: SelectedElement; onApplyStyle: (property: string, value: string) => void; onResetStyle: (property: string) => void }) {
   const [fontFamilies, setFontFamilies] = useState<string[]>([...defaultFontFamilies]);
   const currentValue = selection.styles.fontFamily || "";
@@ -389,7 +494,7 @@ function FontPickerField({ selection, onApplyStyle, onResetStyle }: { selection:
         <DropdownMenuLabel className="px-2 py-1 text-[11px]">Installed fonts</DropdownMenuLabel>
         <DropdownMenuRadioGroup value={availableFonts.includes(currentFamily) ? currentFamily : ""} onValueChange={(font) => onApplyStyle("fontFamily", replacePrimaryFontFamily(currentValue, font))}>
           {availableFonts.map((font) => (
-            <DropdownMenuRadioItem key={font} value={font} className="rounded-[3px] px-2 py-1 text-[14px]" style={{ fontFamily: `"${font}"` }}>
+            <DropdownMenuRadioItem key={font} value={font} className="rounded-[3px] px-2 py-1 text-[14px]" style={{ fontFamily: fontFamilyStyleValue(font), contentVisibility: "auto" }}>
               {font}
             </DropdownMenuRadioItem>
           ))}
@@ -603,20 +708,147 @@ function TypographyGroup({ selection, onApplyStyle, onResetStyle }: { selection:
   );
 }
 
-function colorPickerValue(value: string | undefined) {
+type RgbaColorValue = { r: number; g: number; b: number; a: number };
+
+function clampColorChannel(value: number) {
+  return Math.min(255, Math.max(0, Math.round(value)));
+}
+
+function colorAlpha(value: string | undefined) {
+  const normalized = value?.trim() || "";
+  const parsed = Number.parseFloat(normalized.endsWith("%") ? normalized.slice(0, -1) : normalized);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.min(1, Math.max(0, normalized.endsWith("%") ? parsed / 100 : parsed));
+}
+
+function labToRgba(lightness: number, a: number, b: number, alpha: number): RgbaColorValue {
+  const epsilon = 216 / 24389;
+  const kappa = 24389 / 27;
+  const f = (value: number) => value ** 3 > epsilon ? value ** 3 : (116 * value - 16) / kappa;
+  const fy = (lightness + 16) / 116;
+  const fx = fy + a / 500;
+  const fz = fy - b / 200;
+  const x = f(fx) * 0.96422;
+  const y = f(fy);
+  const z = f(fz) * 0.82521;
+  const d65X = 0.9555766 * x - 0.0230393 * y + 0.0631636 * z;
+  const d65Y = -0.0282895 * x + 1.0099416 * y + 0.0210077 * z;
+  const d65Z = 0.0122982 * x - 0.020483 * y + 1.3299098 * z;
+  const linear = [
+    3.2406 * d65X - 1.5372 * d65Y - 0.4986 * d65Z,
+    -0.9689 * d65X + 1.8758 * d65Y + 0.0415 * d65Z,
+    0.0557 * d65X - 0.204 * d65Y + 1.057 * d65Z,
+  ];
+  const toSrgb = (channel: number) => (channel <= 0.0031308 ? 12.92 * channel : 1.055 * channel ** (1 / 2.4) - 0.055) * 255;
+  return { r: clampColorChannel(toSrgb(linear[0])), g: clampColorChannel(toSrgb(linear[1])), b: clampColorChannel(toSrgb(linear[2])), a: Math.min(1, Math.max(0, alpha)) };
+}
+
+function parseLabColor(value: string): RgbaColorValue | null {
+  const match = value.match(/^lab\(\s*([^)]*)\)$/i);
+  if (!match) return null;
+
+  const parts = match[1].replace("/", " / ").trim().split(/\s+/);
+  const slashIndex = parts.indexOf("/");
+  const channels = slashIndex >= 0 ? parts.slice(0, slashIndex) : parts;
+  if (channels.length < 3) return null;
+
+  const lightnessValue = Number.parseFloat(channels[0]);
+  const aValue = Number.parseFloat(channels[1]);
+  const bValue = Number.parseFloat(channels[2]);
+  const alpha = colorAlpha(slashIndex >= 0 ? parts[slashIndex + 1] : "1");
+  if (![lightnessValue, aValue, bValue, alpha].every(Number.isFinite)) return null;
+
+  return labToRgba(
+    channels[0].endsWith("%") ? lightnessValue : lightnessValue,
+    channels[1].endsWith("%") ? aValue * 1.25 : aValue,
+    channels[2].endsWith("%") ? bValue * 1.25 : bValue,
+    alpha,
+  );
+}
+
+function rgbaColorToHex({ r, g, b, a }: RgbaColorValue) {
+  const channel = (value: number) => clampColorChannel(value).toString(16).padStart(2, "0");
+  return `#${channel(r)}${channel(g)}${channel(b)}${a < 0.995 ? channel(a * 255) : ""}`;
+}
+
+function parseRgbColor(value: string): RgbaColorValue | null {
+  const match = value.match(/^rgba?\(\s*([^)]*)\)$/i);
+  if (!match) return null;
+
+  const parts = match[1].replaceAll(",", " ").replace("/", " / ").trim().split(/\s+/);
+  const slashIndex = parts.indexOf("/");
+  const channels = slashIndex >= 0 ? parts.slice(0, slashIndex) : parts;
+  if (channels.length < 3) return null;
+
+  const parseChannel = (channel: string) => {
+    const parsed = Number.parseFloat(channel);
+    return Number.isFinite(parsed) ? Math.min(255, Math.max(0, channel.endsWith("%") ? parsed * 2.55 : parsed)) : null;
+  };
+  const r = parseChannel(channels[0]);
+  const g = parseChannel(channels[1]);
+  const b = parseChannel(channels[2]);
+  const alpha = colorAlpha(slashIndex >= 0 ? parts[slashIndex + 1] : channels[3] || "1");
+  if (r === null || g === null || b === null) return null;
+
+  return { r, g, b, a: alpha };
+}
+
+function parseHslColor(value: string): RgbaColorValue | null {
+  const match = value.match(/^hsla?\(\s*([^)]*)\)$/i);
+  if (!match) return null;
+
+  const parts = match[1].replaceAll(",", " ").replace("/", " / ").trim().split(/\s+/);
+  const slashIndex = parts.indexOf("/");
+  const channels = slashIndex >= 0 ? parts.slice(0, slashIndex) : parts;
+  if (channels.length < 3) return null;
+
+  const hue = Number.parseFloat(channels[0]);
+  const saturation = Number.parseFloat(channels[1]);
+  const lightness = Number.parseFloat(channels[2]);
+  const alpha = colorAlpha(slashIndex >= 0 ? parts[slashIndex + 1] : channels[3] || "1");
+  if (![hue, saturation, lightness, alpha].every(Number.isFinite)) return null;
+
+  const s = Math.min(1, Math.max(0, saturation / 100));
+  const l = Math.min(1, Math.max(0, lightness / 100));
+  const chroma = (1 - Math.abs(2 * l - 1)) * s;
+  const segment = (((hue % 360) + 360) % 360) / 60;
+  const secondary = chroma * (1 - Math.abs((segment % 2) - 1));
+  const matchValue = l - chroma / 2;
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+  if (segment < 1) [red, green, blue] = [chroma, secondary, 0];
+  else if (segment < 2) [red, green, blue] = [secondary, chroma, 0];
+  else if (segment < 3) [red, green, blue] = [0, chroma, secondary];
+  else if (segment < 4) [red, green, blue] = [0, secondary, chroma];
+  else if (segment < 5) [red, green, blue] = [secondary, 0, chroma];
+  else [red, green, blue] = [chroma, 0, secondary];
+
+  return { r: (red + matchValue) * 255, g: (green + matchValue) * 255, b: (blue + matchValue) * 255, a: alpha };
+}
+
+function colorHexValue(value: string | undefined) {
   const normalized = value?.trim().toLowerCase() || "";
   const hex = normalized.match(/^#([0-9a-f]{3,8})$/i)?.[1];
   if (hex) {
     if (hex.length === 3) return `#${hex.split("").map((digit) => `${digit}${digit}`).join("")}`;
-    if (hex.length >= 6) return `#${hex.slice(0, 6)}`;
+    if (hex.length === 4) return `#${hex.split("").map((digit) => `${digit}${digit}`).join("")}`;
+    if (hex.length >= 6) return `#${hex.slice(0, 8)}`;
   }
 
-  const rgb = normalized.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*[\d.]+)?\s*\)$/i);
-  if (rgb) {
-    return `#${rgb.slice(1, 4).map((channel) => Number(channel).toString(16).padStart(2, "0")).join("")}`;
-  }
+  const rgb = parseRgbColor(normalized);
+  if (rgb) return rgbaColorToHex(rgb);
+  const hsl = parseHslColor(normalized);
+  if (hsl) return rgbaColorToHex(hsl);
+  const lab = parseLabColor(normalized);
+  if (lab) return rgbaColorToHex(lab);
+  if (normalized === "transparent") return "#00000000";
 
   return "#000000";
+}
+
+function displayedColorHexValue(value: string | undefined) {
+  return colorHexValue(value).toUpperCase();
 }
 
 function ColorField({ label, name, property, value, onApplyStyle, onResetStyle }: { label: string; name: string; property: string; value: string | undefined; onApplyStyle: (property: string, value: string) => void; onResetStyle: (property: string) => void }) {
@@ -626,10 +858,10 @@ function ColorField({ label, name, property, value, onApplyStyle, onResetStyle }
         <label htmlFor={`color-${property}`} className={inspectorLabelClass}>{label}</label>
       </Hint>
       <div className="group relative flex h-7 min-w-0 items-center gap-1 rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5">
-        <ColorPicker value={colorPickerValue(value)} onChange={(next) => onApplyStyle(property, next)} ariaLabel={`Choose ${name} color`} />
+        <ColorPicker value={colorHexValue(value)} onChange={(next) => onApplyStyle(property, next)} ariaLabel={`Choose ${name} color`} />
         <Input
           id={`color-${property}`}
-          value={value || ""}
+          value={displayedColorHexValue(value)}
           aria-label={`Edit ${name} color value`}
           placeholder="transparent"
           className="h-4 min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded-none border-0 bg-transparent p-0 pr-6 text-[12px] leading-4 font-normal shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[12px]"
@@ -691,7 +923,9 @@ function BorderStyleField({ value, onChange, onReset }: { value: string | undefi
             <ArrowCounterClockwiseIcon className="size-3.5" />
           </Button>
         </Hint>
-        <CaretDownIcon className="pointer-events-none absolute right-0.5 top-1/2 z-10 size-3 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+        <span className="pointer-events-none absolute right-0.5 top-1/2 z-10 flex size-4 -translate-y-1/2 items-center justify-center text-muted-foreground" aria-hidden="true">
+          <CaretDownIcon className="size-3" />
+        </span>
       </div>
     </div>
   );
@@ -704,8 +938,8 @@ function BorderGroup({ selection, onApplyStyle, onResetStyle }: { selection: Sel
       <div className="space-y-1">
         <BorderStyleField value={selection.styles.borderStyle} onChange={(value) => onApplyStyle("borderStyle", value)} onReset={() => onResetStyle("borderStyle")} />
         <div className="grid grid-cols-2 gap-1">
-          <SizingLayoutField label="Width" name="border-width" value={selection.styles.borderWidth} fallback={1} unitOptions={borderUnits} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("borderWidth", sizingCssValue(value, unit, 1, []))} onReset={() => onResetStyle("borderWidth")} />
-          <SizingLayoutField label="Radius" name="border-radius" value={selection.styles.borderRadius} fallback={0} unitOptions={borderRadiusUnits} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("borderRadius", sizingCssValue(value, unit, 0, []))} onReset={() => onResetStyle("borderRadius")} />
+          <SizingLayoutField label="Width" icon={<GitCommitIcon className="size-3.5" aria-hidden="true" />} name="border-width" value={selection.styles.borderWidth} fallback={1} unitOptions={borderUnits} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("borderWidth", sizingCssValue(value, unit, 1, []))} onReset={() => onResetStyle("borderWidth")} />
+          <SizingLayoutField label="Radius" icon={<CornersOutIcon className="size-3.5" aria-hidden="true" />} name="border-radius" value={selection.styles.borderRadius} fallback={0} unitOptions={borderRadiusUnits} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("borderRadius", sizingCssValue(value, unit, 0, []))} onReset={() => onResetStyle("borderRadius")} />
         </div>
         <ColorField label="Color" name="border" property="borderColor" value={selection.styles.borderColor} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
       </div>
@@ -722,6 +956,7 @@ function CompactLayoutField({
   suffix,
   wideLabel = false,
   inlineLabel,
+  scrubbable = true,
 }: {
   label: React.ReactNode;
   name: string;
@@ -731,14 +966,15 @@ function CompactLayoutField({
   suffix?: string;
   wideLabel?: boolean;
   inlineLabel?: boolean;
+  scrubbable?: boolean;
 }) {
   const isInline = inlineLabel ?? typeof label !== "string";
   const controlContents = (
     <>
-      <Input id={`layout-${name}`} value={value} aria-label={`Edit ${name}`} className="h-4 min-w-0 w-full overflow-hidden text-ellipsis whitespace-nowrap appearance-none rounded-none border-0 bg-transparent p-0 pr-7 text-[14px] leading-4 font-normal tabular-nums shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[14px]" onChange={(event) => onCommit(event.currentTarget.value)} />
+      <Input id={`layout-${name}`} value={value} aria-label={`Edit ${name}`} className={`h-4 min-w-0 w-full overflow-hidden text-ellipsis whitespace-nowrap appearance-none rounded-none border-0 bg-transparent p-0 ${suffix ? "pr-7" : "pr-5"} text-[14px] leading-4 font-normal tabular-nums shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[14px]`} onChange={(event) => onCommit(event.currentTarget.value)} />
       {suffix ? <span className="-ml-1 text-[14px] leading-4 text-muted-foreground">{suffix}</span> : null}
       <Hint content={`Reset ${name}`}>
-        <Button type="button" variant="ghost" size="icon-xs" className={`absolute top-1/2 size-4 -translate-y-1/2 rounded bg-background p-0 text-muted-foreground opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100 ${suffix ? "right-5" : "right-1"}`} onClick={onReset} aria-label={`Reset ${name}`}>
+        <Button type="button" variant="ghost" size="icon-xs" className={`pointer-events-none absolute top-1/2 size-4 -translate-y-1/2 rounded bg-background p-0 text-muted-foreground opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 ${suffix ? "right-5" : "right-1"}`} onClick={onReset} aria-label={`Reset ${name}`}>
           <ArrowCounterClockwiseIcon className="size-3.5" />
         </Button>
       </Hint>
@@ -748,7 +984,7 @@ function CompactLayoutField({
   if (!isInline) {
     return (
       <div className="space-y-1">
-        <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={value} onScrub={onCommit} className={inspectorLabelClass}>{label}</NumericScrubLabel>
+        {scrubbable === false ? <Hint content={name}><label htmlFor={`layout-${name}`} className={inspectorLabelClass}>{label}</label></Hint> : <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={value} onScrub={onCommit} className={inspectorLabelClass}>{label}</NumericScrubLabel>}
         <div className="group relative flex h-7 min-w-0 items-center rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5">
           {controlContents}
         </div>
@@ -758,7 +994,7 @@ function CompactLayoutField({
 
   return (
     <div className={`group relative grid h-7 min-w-0 items-center rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5 ${wideLabel ? "grid-cols-[1.75rem_minmax(0,1fr)_auto]" : "grid-cols-[0.875rem_minmax(0,1fr)_auto] gap-x-2"}`}>
-      <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={value} onScrub={onCommit} className={`${wideLabel ? "text-left" : "grid size-3.5 place-items-center"} text-[14px] leading-none font-normal text-muted-foreground [&>svg]:block`}>{label}</NumericScrubLabel>
+      {scrubbable === false ? <Hint content={name}><label htmlFor={`layout-${name}`} className={`${wideLabel ? "text-left" : "grid size-3.5 place-items-center"} text-[14px] leading-none font-normal text-muted-foreground [&>svg]:block`}>{label}</label></Hint> : <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={value} onScrub={onCommit} className={`${wideLabel ? "text-left" : "grid size-3.5 place-items-center"} text-[14px] leading-none font-normal text-muted-foreground [&>svg]:block`}>{label}</NumericScrubLabel>}
       {controlContents}
     </div>
   );
@@ -780,7 +1016,7 @@ function GridPlacementField({ label, name, value, onCommit, onReset }: { label: 
   return (
     <DropdownMenu>
       <div className="space-y-1">
-        <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={value} onScrub={onCommit} className={inspectorLabelClass}>{label}</NumericScrubLabel>
+        <Hint content={label}><label htmlFor={`layout-${name}`} className={inspectorLabelClass}>{label}</label></Hint>
         <div className="group relative flex h-7 min-w-0 items-center rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5">
           <Input id={`layout-${name}`} value={value} aria-label={`Edit ${name}`} className="h-4 min-w-0 w-full overflow-hidden text-ellipsis whitespace-nowrap appearance-none rounded-none border-0 bg-transparent p-0 pr-8 text-[14px] leading-4 font-normal tabular-nums shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[14px]" onChange={(event) => onCommit(event.currentTarget.value)} />
           <Hint content={`Reset ${name}`}>
@@ -882,6 +1118,8 @@ function SizingLayoutField({
   compactLabel = false,
   inlineLabel,
   hideLabel = false,
+  scrubbable = true,
+  icon,
 }: {
   label: React.ReactNode;
   name: string;
@@ -895,6 +1133,8 @@ function SizingLayoutField({
   compactLabel?: boolean;
   inlineLabel?: boolean;
   hideLabel?: boolean;
+  scrubbable?: boolean;
+  icon?: React.ReactNode;
 }) {
   const parsed = parseSizingValue(value, fallback, unitOptions, keywordOptions, defaultUnit);
   const selectedKeyword = keywordOptions.find((option) => option.value === parsed.unit);
@@ -910,8 +1150,8 @@ function SizingLayoutField({
 
   const field = (
     <DropdownMenu>
-      <div className={`group relative min-w-0 rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5 ${isInline ? `grid h-7 items-center ${compactLabel ? "grid-cols-[0.875rem_minmax(0,1fr)] gap-x-2" : "grid-cols-[1.75rem_minmax(0,1fr)]"}` : "flex h-7 items-center"}`}>
-        {isInline ? <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={parsed.inputValue} onScrub={(nextValue) => onCommit(nextValue, parsed.unit)} allowUnit className={`${compactLabel ? "grid size-3.5 place-items-center [&>svg]:block" : ""} text-[14px] leading-4 font-normal text-muted-foreground`}>{label}</NumericScrubLabel> : null}
+      <div className={`group relative min-w-0 rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5 ${isInline ? `grid h-7 items-center ${compactLabel ? "grid-cols-[0.875rem_minmax(0,1fr)] gap-x-2" : "grid-cols-[1.75rem_minmax(0,1fr)]"}` : "flex h-7 items-center gap-2"}`}>
+        {isInline ? (scrubbable === false ? <Hint content={String(label)}><label htmlFor={`layout-${name}`} className={`${compactLabel ? "grid size-3.5 place-items-center [&>svg]:block" : ""} text-[14px] leading-4 font-normal text-muted-foreground`}>{label}</label></Hint> : <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={parsed.inputValue} onScrub={(nextValue) => onCommit(nextValue, parsed.unit)} allowUnit className={`${compactLabel ? "grid size-3.5 place-items-center [&>svg]:block" : ""} text-[14px] leading-4 font-normal text-muted-foreground`}>{label}</NumericScrubLabel>) : icon ? <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={parsed.inputValue} onScrub={(nextValue) => onCommit(nextValue, parsed.unit)} allowUnit className="grid size-3.5 shrink-0 place-items-center text-muted-foreground [&>svg]:block">{icon}</NumericScrubLabel> : null}
         <Input
           id={`layout-${name}`}
           value={parsed.inputValue}
@@ -953,7 +1193,7 @@ function SizingLayoutField({
   if (!isInline && !hideLabel) {
     return (
       <div className="space-y-1">
-        <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={parsed.inputValue} onScrub={(nextValue) => onCommit(nextValue, parsed.unit)} allowUnit className={inspectorLabelClass}>{label}</NumericScrubLabel>
+        <Hint content={String(label)}><label htmlFor={`layout-${name}`} className={inspectorLabelClass}>{label}</label></Hint>
         {field}
       </div>
     );
@@ -1006,7 +1246,9 @@ function CompactLayoutSelectField({ label, name, value, options, onChange }: { l
           {options.map((option) => <SelectItem key={option.value} value={option.value} className="rounded-[3px] px-2 py-1 text-[14px]">{option.label}</SelectItem>)}
         </SelectContent>
       </Select>
-      <CaretDownIcon className="pointer-events-none absolute right-0.5 top-1/2 z-10 size-3 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+      <span className="pointer-events-none absolute right-0.5 top-1/2 z-10 flex size-4 -translate-y-1/2 items-center justify-center text-muted-foreground" aria-hidden="true">
+        <CaretDownIcon className="size-3" />
+      </span>
     </div>
   );
 }
@@ -1023,8 +1265,10 @@ function spacingInputValue(value: string | undefined) {
 function spacingCssValue(inputValue: string, currentValue: string | undefined) {
   const value = inputValue.trim();
   if (!value) return "0px";
-  if (spacingValuePattern.test(value) || /^(?:auto|inherit|initial|unset|revert)$/i.test(value) || /^[a-z-]+\(.*\)$/i.test(value)) return value;
+  const numericValue = value.match(spacingValuePattern);
   const currentUnit = currentValue?.trim().match(spacingValuePattern)?.[2] || "px";
+  if (numericValue) return numericValue[2] ? value : `${value}${currentUnit}`;
+  if (/^(?:auto|inherit|initial|unset|revert)$/i.test(value) || /^[a-z-]+\(.*\)$/i.test(value)) return value;
   return `${value}${currentUnit}`;
 }
 
@@ -1041,14 +1285,23 @@ function SpacingField({
   className: string;
   onCommit: (property: SpacingProperty, value: string, currentValue: string | undefined) => void;
 }) {
+  const inputValue = spacingInputValue(value);
+  const scrub = useMouseScrub({
+    value: inputValue,
+    onScrub: (nextValue) => onCommit(property, nextValue, value),
+  });
+
   return (
-    <div className={`group flex min-w-0 items-center justify-center ${className}`}>
-      <NumericScrubInput
+    <div
+      className={`group touch-none flex min-w-0 items-center justify-center ${scrub.canScrub ? "cursor-ew-resize select-none" : ""} ${className}`}
+      onMouseDown={scrub.handleMouseDown}
+    >
+      <Input
         id={`spacing-${property}`}
-        value={spacingInputValue(value)}
+        value={inputValue}
         aria-label={`${label} ${property}`}
-        className="h-5 w-8 rounded-[3px] border-transparent bg-transparent px-0.5 text-center text-[11px] font-normal tabular-nums shadow-none hover:border-border hover:bg-background focus-visible:border-border focus-visible:bg-background focus-visible:ring-1 focus-visible:ring-foreground/5"
-        onScrub={(nextValue) => onCommit(property, nextValue, value)}
+        className="relative z-10 h-5 w-8 cursor-text rounded-[3px] border-transparent bg-transparent px-0.5 text-center text-[11px] font-normal tabular-nums shadow-none hover:border-border hover:bg-background focus-visible:border-border focus-visible:bg-background focus-visible:ring-1 focus-visible:ring-foreground/5"
+        onMouseDown={(event) => event.stopPropagation()}
         onChange={(event) => onCommit(property, event.currentTarget.value, value)}
       />
     </div>
@@ -1062,13 +1315,37 @@ function SpacingGroup({
   selection: SelectedElement;
   onApplyStyle: (property: string, value: string) => void;
 }) {
+  const [spacingLinked, setSpacingLinked] = useState(false);
+
   function commitSpacing(property: SpacingProperty, value: string, currentValue: string | undefined) {
-    onApplyStyle(property, spacingCssValue(value, currentValue));
+    const cssValue = spacingCssValue(value, currentValue);
+    onApplyStyle(property, cssValue);
+
+    if (!spacingLinked) return;
+
+    const pairedProperty: Partial<Record<SpacingProperty, SpacingProperty>> = {
+      marginTop: "marginBottom",
+      marginBottom: "marginTop",
+      marginLeft: "marginRight",
+      marginRight: "marginLeft",
+      paddingTop: "paddingBottom",
+      paddingBottom: "paddingTop",
+      paddingLeft: "paddingRight",
+      paddingRight: "paddingLeft",
+    };
+    onApplyStyle(pairedProperty[property] || property, cssValue);
   }
 
   return (
     <div className="space-y-1">
-      <LayoutLabel>Spacing</LayoutLabel>
+      <div className="flex h-4 items-center justify-between">
+        <LayoutLabel>Spacing</LayoutLabel>
+        <Hint content={spacingLinked ? "Unlock spacing pairs" : "Lock spacing pairs"}>
+          <Button type="button" variant="ghost" size="icon-xs" className={`size-4 rounded p-0 transition-colors focus-visible:ring-1 focus-visible:ring-foreground/10 ${spacingLinked ? "bg-muted/60 text-foreground ring-1 ring-foreground/10" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`} onClick={() => setSpacingLinked((current) => !current)} aria-label={spacingLinked ? "Unlock spacing pairs" : "Lock spacing pairs"} aria-pressed={spacingLinked}>
+            <LinkSimpleHorizontalIcon className="size-3" />
+          </Button>
+        </Hint>
+      </div>
       <div className="relative h-28 min-w-0 overflow-hidden rounded-[5px] border border-border bg-muted/25">
         <span className="pointer-events-none absolute left-1 top-0.5 z-20 text-[8px] uppercase leading-3 text-muted-foreground">Margin</span>
         <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
@@ -1098,10 +1375,17 @@ function SpacingGroup({
 }
 
 const overflowOptions = [
-  { value: "visible", label: "Visible" },
-  { value: "hidden", label: "Hidden" },
-  { value: "auto", label: "Auto" },
-  { value: "scroll", label: "Scroll" },
+  { value: "visible", label: "Visible", icon: EyeIcon },
+  { value: "hidden", label: "Hidden", icon: EyeSlashIcon },
+  { value: "scroll", label: "Scroll", icon: MouseScrollIcon },
+  { value: "auto", label: "Auto", icon: GearSixIcon },
+] as const;
+
+const positioningOptions = [
+  { value: "static", label: "Static", icon: RowsIcon },
+  { value: "relative", label: "Relative", icon: CrosshairSimpleIcon },
+  { value: "absolute", label: "Absolute", icon: BoundingBoxIcon },
+  { value: "fixed", label: "Fixed", icon: PushPinIcon },
 ] as const;
 
 const boxSizingOptions = [
@@ -1118,6 +1402,40 @@ function normalizeJustifyContent(value: string | undefined) {
 
 const layoutControlSurface = "flex h-7 overflow-hidden rounded-[5px] border border-border bg-muted/35 p-0.5 shadow-none";
 const layoutControlButton = "h-full flex-1 rounded-[3px] text-muted-foreground leading-4 shadow-none transition-colors aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-none aria-pressed:ring-1 aria-pressed:ring-foreground/5";
+
+function OverflowField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <div className="space-y-1">
+      <LayoutLabel>Overflow</LayoutLabel>
+      <div className={layoutControlSurface} role="group" aria-label="Overflow">
+        {overflowOptions.map(({ value: optionValue, label, icon: Icon }) => (
+          <Hint key={optionValue} content={label}>
+            <Button type="button" variant="ghost" size="icon-xs" className={layoutControlButton} onClick={() => onChange(optionValue)} aria-label={`Overflow ${label}`} aria-pressed={value === optionValue}>
+              <Icon className="size-3.5" aria-hidden="true" />
+            </Button>
+          </Hint>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PositioningField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <div className="space-y-1">
+      <LayoutLabel>Positioning</LayoutLabel>
+      <div className={layoutControlSurface} role="group" aria-label="Positioning">
+        {positioningOptions.map(({ value: optionValue, label, icon: Icon }) => (
+          <Hint key={optionValue} content={label}>
+            <Button type="button" variant="ghost" size="icon-xs" className={layoutControlButton} onClick={() => onChange(optionValue)} aria-label={`Positioning ${label}`} aria-pressed={value === optionValue}>
+              <Icon className="size-3.5" aria-hidden="true" />
+            </Button>
+          </Hint>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 type TransformType = "rotate" | "scale" | "skew";
 
@@ -1413,8 +1731,8 @@ function LayoutGroup({
             <SizingLayoutField label="H" name="height" value={selection.styles.height} fallback={selection.dimensions.height} inlineLabel onCommit={(value, unit) => commitSizing("height", value, unit)} onReset={() => onResetStyle("height")} />
           </div>
           <div className="grid grid-cols-2 gap-1">
-            <SizingLayoutField label="MW" name="min-width" value={selection.styles.minWidth} fallback={0} inlineLabel onCommit={(value, unit) => commitSizing("minWidth", value, unit)} onReset={() => onResetStyle("minWidth")} />
-            <SizingLayoutField label="MH" name="min-height" value={selection.styles.minHeight} fallback={0} inlineLabel onCommit={(value, unit) => commitSizing("minHeight", value, unit)} onReset={() => onResetStyle("minHeight")} />
+            <SizingLayoutField label={<ArrowLineRightIcon className="size-3.5" aria-hidden="true" />} name="min-width" value={selection.styles.minWidth} fallback={0} inlineLabel onCommit={(value, unit) => commitSizing("minWidth", value, unit)} onReset={() => onResetStyle("minWidth")} />
+            <SizingLayoutField label={<ArrowLineUpIcon className="size-3.5" aria-hidden="true" />} name="min-height" value={selection.styles.minHeight} fallback={0} inlineLabel onCommit={(value, unit) => commitSizing("minHeight", value, unit)} onReset={() => onResetStyle("minHeight")} />
           </div>
         </div>
 
@@ -1459,15 +1777,15 @@ function LayoutGroup({
                     </div>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 items-start gap-1">
-                  <div className="space-y-1">
+                <div className="grid grid-cols-2 items-stretch gap-1">
+                  <div className="flex min-h-0 flex-col gap-1">
                     <LayoutLabel>Alignment</LayoutLabel>
-                    <div className="grid w-full grid-cols-3 gap-0.5 rounded-[5px] border border-border bg-muted/35 p-0.5" role="group" aria-label="Alignment">
+                    <div className="grid min-h-0 flex-1 w-full grid-cols-3 gap-0.5 rounded-[5px] border border-border bg-muted/35 p-0.5" role="group" aria-label="Alignment">
                       {alignmentValues.flatMap((alignValue, row) => alignmentIcons[row].map((AlignmentIcon, column) => {
                         const justifyValue = alignmentValues[column];
                         const selected = quickAlignActive && (isColumnFlex ? row === justifyIndex && column === alignIndex : row === alignIndex && column === justifyIndex);
                         return (
-                          <Button key={`${alignValue}-${justifyValue}`} type="button" variant="ghost" size="icon-xs" className="h-[30px] w-full rounded-[3px] text-muted-foreground shadow-none hover:bg-transparent" onClick={() => applyAlignment(row, column)} aria-label={`Alignment ${alignValue}, justify ${justifyValue}`} aria-pressed={selected}>
+                          <Button key={`${alignValue}-${justifyValue}`} type="button" variant="ghost" size="icon-xs" className="h-full min-h-[30px] w-full rounded-[3px] text-muted-foreground shadow-none hover:bg-transparent" onClick={() => applyAlignment(row, column)} aria-label={`Alignment ${alignValue}, justify ${justifyValue}`} aria-pressed={selected}>
                             {selected ? <AlignmentIcon className="size-3.5" aria-hidden="true" /> : <DotIcon className="size-3.5" aria-hidden="true" />}
                           </Button>
                         );
@@ -1501,21 +1819,18 @@ function LayoutGroup({
                       { value: "space-around", label: "Space around" },
                       { value: "space-evenly", label: "Space evenly" },
                     ]} onChange={(value) => onApplyStyle("alignContent", value)} />
+                    <SizingLayoutField label="Gap" icon={<SplitHorizontalIcon className="size-3.5" aria-hidden="true" />} hideLabel name="gap" value={selection.styles.gap} fallback={0} keywordOptions={gapKeywords} onCommit={(value, unit) => onApplyStyle("gap", sizingCssValue(value, unit, 0, gapKeywords))} onReset={() => onResetStyle("gap")} />
                   </div>
-                </div>
-                <div className="space-y-1">
-                  <LayoutLabel>Gap</LayoutLabel>
-                  <SizingLayoutField label="gap" hideLabel name="gap" value={selection.styles.gap} fallback={0} keywordOptions={gapKeywords} onCommit={(value, unit) => onApplyStyle("gap", sizingCssValue(value, unit, 0, gapKeywords))} onReset={() => onResetStyle("gap")} />
                 </div>
               </div>
             ) : null}
             {isFlexItem && moreOptionsOpen ? (
               <div className="space-y-1">
                 <div className="grid grid-cols-2 gap-1">
-                  <CompactLayoutField label="Grow" name="flex-grow" value={selection.styles.flexGrow} onCommit={(value) => onApplyStyle("flexGrow", value)} onReset={() => onResetStyle("flexGrow")} />
-                  <CompactLayoutField label="Shrink" name="flex-shrink" value={selection.styles.flexShrink} onCommit={(value) => onApplyStyle("flexShrink", value)} onReset={() => onResetStyle("flexShrink")} />
-                  <SizingLayoutField label="Basis" name="flex-basis" value={selection.styles.flexBasis} fallback={0} onCommit={(value, unit) => onApplyStyle("flexBasis", sizingCssValue(value, unit, 0))} onReset={() => onResetStyle("flexBasis")} />
-                  <CompactLayoutField label="Order" name="order" value={selection.styles.order} onCommit={(value) => onApplyStyle("order", value)} onReset={() => onResetStyle("order")} />
+                  <CompactLayoutField label="Grow" name="flex-grow" value={selection.styles.flexGrow} scrubbable={false} onCommit={(value) => onApplyStyle("flexGrow", value)} onReset={() => onResetStyle("flexGrow")} />
+                  <CompactLayoutField label="Shrink" name="flex-shrink" value={selection.styles.flexShrink} scrubbable={false} onCommit={(value) => onApplyStyle("flexShrink", value)} onReset={() => onResetStyle("flexShrink")} />
+                  <SizingLayoutField label="Basis" name="flex-basis" value={selection.styles.flexBasis} fallback={0} scrubbable={false} onCommit={(value, unit) => onApplyStyle("flexBasis", sizingCssValue(value, unit, 0))} onReset={() => onResetStyle("flexBasis")} />
+                  <CompactLayoutField label="Order" name="order" value={selection.styles.order} scrubbable={false} onCommit={(value) => onApplyStyle("order", value)} onReset={() => onResetStyle("order")} />
                 </div>
                 <LayoutSelectField label="Align self" name="align-self" value={selection.styles.alignSelf} options={[
                   { value: "auto", label: "Auto" },
@@ -1536,8 +1851,8 @@ function LayoutGroup({
                 <div className="grid grid-cols-2 gap-1">
                   <CompactLayoutField label="Columns" name="grid-template-columns" value={selection.styles.gridTemplateColumns} onCommit={(value) => onApplyStyle("gridTemplateColumns", value)} onReset={() => onResetStyle("gridTemplateColumns")} />
                   <CompactLayoutField label="Rows" name="grid-template-rows" value={selection.styles.gridTemplateRows} onCommit={(value) => onApplyStyle("gridTemplateRows", value)} onReset={() => onResetStyle("gridTemplateRows")} />
-                  <SizingLayoutField label="Row gap" name="row-gap" value={selection.styles.rowGap} fallback={0} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("rowGap", sizingCssValue(value, unit, 0, []))} onReset={() => onResetStyle("rowGap")} />
-                  <SizingLayoutField label="Column gap" name="column-gap" value={selection.styles.columnGap} fallback={0} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("columnGap", sizingCssValue(value, unit, 0, []))} onReset={() => onResetStyle("columnGap")} />
+                  <SizingLayoutField label="Row gap" icon={<SplitHorizontalIcon className="size-3.5" aria-hidden="true" />} name="row-gap" value={selection.styles.rowGap} fallback={0} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("rowGap", sizingCssValue(value, unit, 0, []))} onReset={() => onResetStyle("rowGap")} />
+                  <SizingLayoutField label="Column gap" icon={<SplitVerticalIcon className="size-3.5" aria-hidden="true" />} name="column-gap" value={selection.styles.columnGap} fallback={0} keywordOptions={[]} onCommit={(value, unit) => onApplyStyle("columnGap", sizingCssValue(value, unit, 0, []))} onReset={() => onResetStyle("columnGap")} />
                 </div>
                 <LayoutSelectField label="Auto placement" name="grid-auto-flow" value={selection.styles.gridAutoFlow} options={[
                   { value: "row", label: "Row" },
@@ -1584,18 +1899,7 @@ function LayoutGroup({
             <LayoutSelectField label="Box sizing" name="box-sizing" value={selection.styles.boxSizing} options={boxSizingOptions} onChange={(value) => onApplyStyle("boxSizing", value)} />
           ) : null}
           <div className="space-y-1">
-          <LayoutLabel>Positioning</LayoutLabel>
-          <Select value={positionMode} onValueChange={(value) => onApplyStyle("position", value)}>
-            <SelectTrigger aria-label="Position" className={`${inspectorFieldClass} h-7 w-full px-2 font-normal hover:bg-muted/30 focus-visible:ring-1 focus-visible:ring-foreground/5`}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent position="popper" className="rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
-              <SelectItem value="static" className="rounded-[3px] px-2 py-1 text-[14px]">Static</SelectItem>
-              <SelectItem value="relative" className="rounded-[3px] px-2 py-1 text-[14px]">Relative</SelectItem>
-              <SelectItem value="absolute" className="rounded-[3px] px-2 py-1 text-[14px]">Absolute</SelectItem>
-              <SelectItem value="fixed" className="rounded-[3px] px-2 py-1 text-[14px]">Fixed</SelectItem>
-            </SelectContent>
-          </Select>
+          <PositioningField value={positionMode} onChange={(value) => onApplyStyle("position", value)} />
           {positionMode !== "static" ? (
             <div className="space-y-1 pt-1">
               <LayoutLabel>Inset</LayoutLabel>
@@ -1614,8 +1918,10 @@ function LayoutGroup({
             </div>
           ) : null}
           </div>
-          <SizingLayoutField label="Z-index" name="z-index" value={selection.styles.zIndex} fallback={0} unitOptions={zIndexUnits} keywordOptions={zIndexKeywords} defaultUnit="number" onCommit={(value, unit) => onApplyStyle("zIndex", sizingCssValue(value, unit, 0, zIndexKeywords))} onReset={() => onResetStyle("zIndex")} />
-          <LayoutSelectField label="Overflow" name="overflow" value={selection.styles.overflow || "visible"} options={overflowOptions} onChange={(value) => onApplyStyle("overflow", value)} />
+          <div className="grid grid-cols-2 items-end gap-1">
+            <SizingLayoutField label="Z-index" icon={<StackSimpleIcon className="size-3.5" aria-hidden="true" />} name="z-index" value={selection.styles.zIndex} fallback={0} unitOptions={zIndexUnits} keywordOptions={zIndexKeywords} defaultUnit="number" onCommit={(value, unit) => onApplyStyle("zIndex", sizingCssValue(value, unit, 0, zIndexKeywords))} onReset={() => onResetStyle("zIndex")} />
+            <OverflowField value={selection.styles.overflow || "visible"} onChange={(value) => onApplyStyle("overflow", value)} />
+          </div>
           <div className="space-y-1">
           <div className="flex h-4 items-center justify-between">
             <LayoutLabel>Transform</LayoutLabel>
@@ -1744,6 +2050,21 @@ function collectExpandableLayerIds(nodes: LayerNode[], ids = new Set<string>()) 
     collectExpandableLayerIds(node.children, ids);
   }
   return ids;
+}
+
+function findLayerAncestorIds(nodes: LayerNode[], targetId: string, ancestors = new Set<string>()): Set<string> | null {
+  for (const node of nodes) {
+    if (node.selectionId === targetId) return ancestors;
+
+    if (node.children.length > 0) {
+      const nextAncestors = new Set(ancestors);
+      nextAncestors.add(node.selectionId);
+      const result = findLayerAncestorIds(node.children, targetId, nextAncestors);
+      if (result) return result;
+    }
+  }
+
+  return null;
 }
 
 function LayerRow({
@@ -1879,11 +2200,18 @@ function LayerPanel({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<LayerDropTarget | null>(null);
+  const selectedAncestorIds = selection?.selectionId ? findLayerAncestorIds(layerTree, selection.selectionId) : null;
+  const visibleExpandedIds = new Set(expandedIds);
+  for (const selectionId of selectedAncestorIds || []) visibleExpandedIds.add(selectionId);
   const collapsedIds = collectExpandableLayerIds(layerTree);
-  for (const selectionId of expandedIds) collapsedIds.delete(selectionId);
+  for (const selectionId of visibleExpandedIds) collapsedIds.delete(selectionId);
 
   function toggleLayer(selectionId: string) {
     setExpandedIds((current) => {
+      if (selectedAncestorIds?.has(selectionId)) {
+        return current;
+      }
+
       const next = new Set(current);
       if (next.has(selectionId)) next.delete(selectionId);
       else next.add(selectionId);
@@ -1896,7 +2224,7 @@ function LayerPanel({
   }
 
   function collapseAllLayers() {
-    setExpandedIds(new Set());
+    setExpandedIds(selectedAncestorIds || new Set());
   }
 
   function getDropTarget(event: ReactDragEvent<HTMLDivElement>, node: LayerNode, parentId: string | null, nextSiblingId: string | null): LayerDropTarget | null {
@@ -2082,6 +2410,7 @@ function WorkspaceTopbar({
 function PropertiesSidebar({
   className,
   selection,
+  previewChanges,
   projectPath,
   isDesktop,
   codexAvailability,
@@ -2101,6 +2430,7 @@ function PropertiesSidebar({
 }: {
   className?: string;
   selection: SelectedElement | null;
+  previewChanges: PreviewChange[];
   projectPath: string | null;
   isDesktop: boolean;
   codexAvailability: CodexAvailability;
@@ -2118,8 +2448,9 @@ function PropertiesSidebar({
   onResetText: () => void;
   onResetAll: () => void;
 }) {
-  const buildIndicator = getBuildIndicator(codexAvailability, Boolean(selection?.previewChanges?.length));
-  const buildBlocked = !isDesktop || codexAvailability.state !== "available" || !projectPath || !selection?.previewChanges?.length || codexStatus.state === "working";
+  const buildIndicator = getBuildIndicator(codexAvailability, Boolean(previewChanges.length));
+  const isBuilding = codexStatus.state === "working";
+  const buildBlocked = !isDesktop || codexAvailability.state !== "available" || !projectPath || !previewChanges.length || isBuilding;
 
   return (
     <aside className={`flex h-full w-72 shrink-0 flex-col border-l border-border bg-white text-foreground ${className || ""}`}>
@@ -2135,10 +2466,10 @@ function PropertiesSidebar({
                   if (!buildBlocked) onBuild();
                 }}
                 aria-disabled={buildBlocked}
-                aria-label="Build visual changes with Codex"
+                aria-label={isBuilding ? "Building visual changes with Codex" : "Build visual changes with Codex"}
               >
                 <span className={`size-[6px] shrink-0 rounded-full ${buildIndicatorClass(buildIndicator)}`} aria-hidden="true" />
-                Build
+                {isBuilding ? "Building" : "Build"}
               </Button>
             </Hint>
             <DropdownMenu>
@@ -2148,7 +2479,7 @@ function PropertiesSidebar({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-44 rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
-                <DropdownMenuItem disabled={!selection} onSelect={onResetAll}>
+                <DropdownMenuItem disabled={!selection && !previewChanges.length} onSelect={onResetAll}>
                   <EraserIcon />
                   Reset design
                 </DropdownMenuItem>
@@ -2211,17 +2542,16 @@ function PropertiesSidebar({
             <TypographyGroup selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
             <ColorGroup selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
             <BorderGroup selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
-            <PropertyGroup title="Attributes" values={selection.attributes} />
           </>
         ) : (
           <>
             <section className={inspectorSectionClass}>
               <h3 className={inspectorTitleClass}>Page</h3>
               <div className="group relative flex h-7 min-w-0 items-center gap-1 rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5">
-                <ColorPicker value={colorPickerValue(canvasBackground)} onChange={onCanvasBackgroundChange} ariaLabel="Choose page background color" />
+                <ColorPicker value={colorHexValue(canvasBackground)} onChange={onCanvasBackgroundChange} ariaLabel="Choose page background color" />
                 <Input
                   id="canvas-background-color"
-                  value={canvasBackground}
+                  value={displayedColorHexValue(canvasBackground)}
                   aria-label="Edit page background color"
                   className="h-4 min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded-none border-0 bg-transparent p-0 text-[12px] leading-4 font-normal shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[12px]"
                   onChange={(event) => onCanvasBackgroundChange(event.target.value)}
@@ -2260,6 +2590,7 @@ export function ProjectWorkspace({
   const [canvasKey, setCanvasKey] = useState(0);
   const [activeTool, setActiveTool] = useState<ToolName>("interact");
   const [selection, setSelection] = useState<SelectedElement | null>(null);
+  const [stagedPreviewChanges, setStagedPreviewChanges] = useState<PreviewChange[]>([]);
   const [layerTree, setLayerTree] = useState<LayerNode[]>([]);
   const [canvasBackground, setCanvasBackground] = useState("#F5F5F5");
   const [sidebarsVisible, setSidebarsVisible] = useState(true);
@@ -2331,6 +2662,7 @@ export function ProjectWorkspace({
     const syncTool = () => {
       webview.send("formia:set-tool", activeToolRef.current);
       webview.send("formia:get-layer-tree");
+      webview.send("formia:get-preview-state");
     };
     const resetArtboardHeight = () => updateArtboardHeight(minimumArtboardHeight);
     const remeasureArtboardHeight = () => {
@@ -2370,11 +2702,19 @@ export function ProjectWorkspace({
         return;
       }
       if (message.channel === "formia:element-selected" || message.channel === "formia:element-updated") {
-        setSelection(message.args[0] as SelectedElement);
+        const nextSelection = message.args[0] as SelectedElement;
+        setSelection(nextSelection);
+        setStagedPreviewChanges(Array.isArray(nextSelection.previewChanges) ? nextSelection.previewChanges : []);
+        return;
+      }
+      if (message.channel === "formia:preview-state") {
+        const payload = message.args[0] as { changes?: PreviewChange[] } | undefined;
+        setStagedPreviewChanges(Array.isArray(payload?.changes) ? payload.changes : []);
         return;
       }
       if (message.channel === "formia:selection-cleared") {
         setSelection(null);
+        setStagedPreviewChanges([]);
       }
     };
 
@@ -2412,6 +2752,7 @@ export function ProjectWorkspace({
       if (status.state === "applied") {
         sendCanvasMessage("formia:reset-overrides");
         setSelection(null);
+        setStagedPreviewChanges([]);
         setCanvasKey((key) => key + 1);
       }
     });
@@ -2426,12 +2767,14 @@ export function ProjectWorkspace({
       if (status.state === "starting") {
         setCanvasUrl(null);
         setSelection(null);
+        setStagedPreviewChanges([]);
         setLayerTree([]);
       }
       if (status.url) {
         setCanvasUrl(status.url);
         setCanvasKey((key) => key + 1);
         setSelection(null);
+        setStagedPreviewChanges([]);
       }
       if (status.state === "failed") setCanvasUrl(null);
     };
@@ -2622,11 +2965,35 @@ export function ProjectWorkspace({
 
     if (input.targetIsEditable || input.altKey || input.repeat) return;
 
+    if (!hasModifier && !input.shiftKey) {
+      const layerDirection = input.code === "ArrowUp" || input.code === "ArrowLeft"
+        ? "up"
+        : input.code === "ArrowDown" || input.code === "ArrowRight"
+          ? "down"
+          : null;
+      if (layerDirection) {
+        input.preventDefault?.();
+        sendCanvasMessage("formia:move-selected-layer", layerDirection);
+        return;
+      }
+    }
+
     if (hasModifier) {
+      if (!input.shiftKey && input.code === "KeyD") {
+        input.preventDefault?.();
+        sendCanvasMessage("formia:duplicate-selected-layer");
+        return;
+      }
       if (!input.shiftKey && input.code === "BracketLeft") {
         input.preventDefault?.();
         goBack();
       }
+      return;
+    }
+
+    if (input.code === "Delete" || input.code === "Backspace") {
+      input.preventDefault?.();
+      sendCanvasMessage("formia:delete-selected-layer");
       return;
     }
 
@@ -2702,6 +3069,7 @@ export function ProjectWorkspace({
 
   function refreshApp() {
     setSelection(null);
+    setStagedPreviewChanges([]);
     setLayerTree([]);
     setArtboardHeight(minimumArtboardHeight);
     if (webviewRef.current) {
@@ -2734,16 +3102,18 @@ export function ProjectWorkspace({
 
   function clearCanvasSelection() {
     setSelection(null);
+    setStagedPreviewChanges([]);
     sendCanvasMessage("formia:clear-selection");
   }
 
   function resetPreview() {
     sendCanvasMessage("formia:reset-overrides");
+    setStagedPreviewChanges([]);
     setCodexStatus({ state: "idle", message: "" });
   }
 
   async function buildWithCodex() {
-    if (!projectPath || !selection?.previewChanges?.length || !window.formiaDesktop) return;
+    if (!projectPath || !stagedPreviewChanges.length || !window.formiaDesktop) return;
 
     setCodexStatus({ state: "working", message: "Sending visual changes to Codex" });
     try {
@@ -2752,7 +3122,7 @@ export function ProjectWorkspace({
         projectName,
         canvasUrl,
         selection,
-        previewChanges: selection.previewChanges,
+        previewChanges: stagedPreviewChanges,
       });
     } catch (error) {
       setCodexStatus({
@@ -2771,6 +3141,7 @@ export function ProjectWorkspace({
     if (!projectPath || !window.formiaDesktop) return;
 
     setSelection(null);
+    setStagedPreviewChanges([]);
     setLayerTree([]);
     try {
       await window.formiaDesktop.restartProjectServer();
@@ -2931,6 +3302,7 @@ export function ProjectWorkspace({
       <PropertiesSidebar
         className={sidebarsVisible ? "" : "hidden"}
         selection={selection}
+        previewChanges={stagedPreviewChanges}
         projectPath={projectPath}
         isDesktop={isDesktop}
         codexAvailability={codexAvailability}

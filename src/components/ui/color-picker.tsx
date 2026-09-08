@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { HsvaColorPicker, type HsvaColor } from "react-colorful";
 import { EyedropperIcon } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
@@ -11,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 type ColorFormat = "hex" | "rgb" | "hsl";
 type RgbaColor = { r: number; g: number; b: number; a: number };
+type HsvaColor = { h: number; s: number; v: number; a: number };
 
 type ColorPickerProps = {
   value: string;
@@ -97,7 +97,7 @@ function rgbaToHsva({ r, g, b, a }: RgbaColor): HsvaColor {
   const max = Math.max(red, green, blue);
   const min = Math.min(red, green, blue);
   const delta = max - min;
-  let h = 0;
+  let h = 270;
 
   if (delta) {
     if (max === red) h = 60 * (((green - blue) / delta) % 6);
@@ -182,19 +182,12 @@ function rgbaToHsl({ r, g, b, a }: RgbaColor) {
   return { h: round((h + 360) % 360), s: round(s * 100), l: round(l * 100), a: round(a, 2) };
 }
 
-function formatColor(hsva: HsvaColor, format: ColorFormat) {
-  const rgba = hsvaToRgba(hsva);
-  if (format === "hex") return rgbaToHex(rgba);
-  if (format === "rgb") {
-    return rgba.a < 0.995 ? `rgba(${rgba.r}, ${rgba.g}, ${rgba.b}, ${round(rgba.a, 2)})` : `rgb(${rgba.r}, ${rgba.g}, ${rgba.b})`;
-  }
-
-  const hsl = rgbaToHsl(rgba);
-  return hsl.a < 0.995 ? `hsla(${hsl.h}, ${hsl.s}%, ${hsl.l}%, ${hsl.a})` : `hsl(${hsl.h}, ${hsl.s}%, ${hsl.l}%)`;
-}
-
 function formatLabel(format: ColorFormat) {
   return format === "hex" ? "Hex" : format.toUpperCase();
+}
+
+function toRgbaString(rgb: RgbaColor, alpha: number) {
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${round(alpha, 2)})`;
 }
 
 export function ColorPicker({ value, onChange, ariaLabel = "Choose color" }: ColorPickerProps) {
@@ -203,12 +196,10 @@ export function ColorPicker({ value, onChange, ariaLabel = "Choose color" }: Col
   const [open, setOpen] = React.useState(false);
   const [format, setFormat] = React.useState<ColorFormat>("hex");
   const [hsva, setHsva] = React.useState(() => parseColor(color));
-  const [inputValue, setInputValue] = React.useState(() => formatColor(parseColor(color), "hex").toUpperCase());
 
   function syncFromValue(nextValue: string) {
     const nextHsva = parseColor(nextValue);
     setHsva(nextHsva);
-    setInputValue(formatColor(nextHsva, format).toUpperCase());
   }
 
   function handleOpenChange(nextOpen: boolean) {
@@ -216,21 +207,18 @@ export function ColorPicker({ value, onChange, ariaLabel = "Choose color" }: Col
     setOpen(nextOpen);
   }
 
-  function commitHsva(nextHsva: HsvaColor, nextFormat = format) {
+  function commitHsva(nextHsva: HsvaColor) {
     setHsva(nextHsva);
-    setInputValue(formatColor(nextHsva, nextFormat).toUpperCase());
-    onChange(formatColor(nextHsva, nextFormat));
+    onChange(rgbaToHex(hsvaToRgba(nextHsva)));
   }
 
   function handleInputChange(nextValue: string) {
-    setInputValue(nextValue);
     const nextHsva = parseColorIfValid(nextValue);
-    if (nextHsva) commitHsva(nextHsva, format);
+    if (nextHsva) commitHsva(nextHsva);
   }
 
   function handleFormatChange(nextFormat: ColorFormat) {
     setFormat(nextFormat);
-    setInputValue(formatColor(hsva, nextFormat).toUpperCase());
   }
 
   async function pickFromScreen() {
@@ -247,6 +235,33 @@ export function ColorPicker({ value, onChange, ariaLabel = "Choose color" }: Col
     }
   }
 
+  const updatePlane = (clientX: number, clientY: number, element: HTMLElement) => {
+    const rect = element.getBoundingClientRect();
+    const s = clamp(((clientX - rect.left) / rect.width) * 100, 0, 100);
+    const v = clamp(100 - ((clientY - rect.top) / rect.height) * 100, 0, 100);
+    commitHsva({ ...hsva, s: round(s, 1), v: round(v, 1) });
+  };
+
+  const handlePlanePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    const target = event.currentTarget;
+    target.setPointerCapture(event.pointerId);
+    updatePlane(event.clientX, event.clientY, target);
+  };
+
+  const handlePlanePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if ((event.buttons & 1) !== 1) return;
+    updatePlane(event.clientX, event.clientY, event.currentTarget);
+  };
+
+  const rgb = hsvaToRgba(hsva);
+  const hsl = rgbaToHsl(rgb);
+  const hex = rgbaToHex(rgb);
+  const checkerboard = {
+    backgroundImage: "linear-gradient(45deg, #d4d4d8 25%, transparent 25%), linear-gradient(-45deg, #d4d4d8 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #d4d4d8 75%), linear-gradient(-45deg, transparent 75%, #d4d4d8 75%)",
+    backgroundSize: "10px 10px",
+    backgroundPosition: "0 0, 0 5px, 5px -5px, -5px 0px",
+  } as const;
+
   const triggerColor = rgbaToHex(hsvaToRgba(parseColor(color)));
 
   return (
@@ -254,33 +269,70 @@ export function ColorPicker({ value, onChange, ariaLabel = "Choose color" }: Col
       <PopoverTrigger asChild>
         <Button type="button" variant="ghost" size="icon-xs" className="size-4 shrink-0 rounded-[3px] border border-border p-0 focus-visible:ring-1 focus-visible:ring-foreground/20" style={{ backgroundColor: triggerColor }} aria-label={ariaLabel} />
       </PopoverTrigger>
-      <PopoverContent side="right" align="start" sideOffset={8} className="w-80 gap-3 rounded-xl border border-border p-3 shadow-lg">
-        <HsvaColorPicker
-          color={hsva}
-          onChange={(next) => commitHsva(next)}
-          className="!h-64 !w-full [&_.react-colorful__alpha]:h-3.5 [&_.react-colorful__hue]:h-3.5 [&_.react-colorful__pointer]:!size-4 [&_.react-colorful__saturation]:rounded-[5px] [&_.react-colorful__hue]:mt-2 [&_.react-colorful__hue]:rounded-full [&_.react-colorful__alpha]:mt-2 [&_.react-colorful__alpha]:rounded-full"
-        />
+      <PopoverContent side="right" align="start" sideOffset={8} className="w-[320px] border-0 bg-transparent p-0 shadow-none">
+        <div className="w-full max-w-[320px] space-y-3 rounded-xl border bg-background p-3 shadow-sm">
+          <div className="relative h-56 w-full overflow-hidden rounded-lg border" style={checkerboard}>
+            <div className="absolute inset-0" style={{ backgroundColor: `hsl(${hsva.h} 100% 50%)` }} />
+            <div className="absolute inset-0 bg-gradient-to-r from-white to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black to-transparent" />
+            <div className="absolute inset-0 cursor-crosshair touch-none" onPointerDown={handlePlanePointerDown} onPointerMove={handlePlanePointerMove}>
+              <div className="absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow" style={{ left: `${hsva.s}%`, top: `${100 - hsva.v}%`, backgroundColor: toRgbaString(rgb, hsva.a) }} />
+            </div>
+          </div>
 
-        <div className="grid grid-cols-[2.25rem_minmax(0,1fr)_4.75rem] items-center gap-2">
-          <Button type="button" variant="outline" size="icon" className="size-9 rounded-[6px] p-0 text-muted-foreground" onClick={() => void pickFromScreen()} aria-label="Pick color from screen">
-            <EyedropperIcon className="size-4" />
-          </Button>
-          <Input id={`color-picker-value-${inputId}`} value={inputValue} onChange={(event) => handleInputChange(event.currentTarget.value)} aria-label={`Edit ${formatLabel(format)} color`} className="h-9 rounded-[6px] px-2.5 font-mono text-xs uppercase" />
-          <Select value={format} onValueChange={(next) => handleFormatChange(next as ColorFormat)}>
-            <SelectTrigger size="default" aria-label="Color format" className="h-9 w-full rounded-[6px] px-2.5 text-xs font-normal"><SelectValue /></SelectTrigger>
-            <SelectContent position="popper" className="min-w-20 rounded-[6px] p-0.5">
-              <SelectItem value="hex" className="rounded-[3px] px-2 py-1 text-xs">Hex</SelectItem>
-              <SelectItem value="rgb" className="rounded-[3px] px-2 py-1 text-xs">RGB</SelectItem>
-              <SelectItem value="hsl" className="rounded-[3px] px-2 py-1 text-xs">HSL</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+          <div className="space-y-2">
+            <div className="relative h-4 overflow-hidden rounded-full border" style={checkerboard}>
+              <input type="range" min={0} max={360} value={hsva.h} onChange={(event) => commitHsva({ ...hsva, h: Number(event.target.value) })} className="figma-range absolute inset-0 m-0 h-full w-full cursor-pointer appearance-none rounded-full p-0" style={{ background: "linear-gradient(to right, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%)" }} aria-label="Hue" />
+            </div>
+            <div className="relative h-4 overflow-hidden rounded-full border" style={checkerboard}>
+              <input type="range" min={0} max={100} value={Math.round(hsva.a * 100)} onChange={(event) => commitHsva({ ...hsva, a: Number(event.target.value) / 100 })} className="figma-range absolute inset-0 m-0 h-full w-full cursor-pointer appearance-none rounded-full p-0" style={{ background: `linear-gradient(to right, rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0), rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 1))` }} aria-label="Opacity" />
+            </div>
+          </div>
 
-        <div className="flex items-center gap-2">
-          {swatches.map((swatch) => (
-            <Button key={swatch} type="button" variant="ghost" size="icon-xs" className="size-6 rounded-[4px] border border-border/60 p-0 focus-visible:ring-1 focus-visible:ring-foreground/20" style={{ backgroundColor: swatch }} onClick={() => commitHsva(parseColor(swatch))} aria-label={`Use ${swatch}`} />
-          ))}
+          <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
+            <Button type="button" variant="outline" size="icon" className="size-9 rounded-[6px] p-0 text-muted-foreground" onClick={() => void pickFromScreen()} aria-label="Pick color from screen">
+              <EyedropperIcon className="size-4" />
+            </Button>
+            <Input id={`color-picker-value-${inputId}`} value={format === "hex" ? hex.toUpperCase() : format === "rgb" ? `${rgb.r}, ${rgb.g}, ${rgb.b}` : `${hsl.h}, ${hsl.s}%, ${hsl.l}%`} onChange={(event) => handleInputChange(event.currentTarget.value)} aria-label={`Edit ${formatLabel(format)} color`} className="h-9 rounded-[6px] px-2.5 font-mono text-xs uppercase" />
+            <Select value={format} onValueChange={(next) => handleFormatChange(next as ColorFormat)}>
+              <SelectTrigger size="default" aria-label="Color format" className="h-9 w-full rounded-[6px] px-2.5 text-xs font-normal"><SelectValue /></SelectTrigger>
+              <SelectContent position="popper" className="min-w-20 rounded-[6px] p-0.5">
+                <SelectItem value="hex" className="rounded-[3px] px-2 py-1 text-xs">Hex</SelectItem>
+                <SelectItem value="rgb" className="rounded-[3px] px-2 py-1 text-xs">RGB</SelectItem>
+                <SelectItem value="hsl" className="rounded-[3px] px-2 py-1 text-xs">HSL</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {swatches.map((swatch) => (
+              <Button key={swatch} type="button" variant="ghost" size="icon-xs" className="size-6 rounded-[4px] border border-border/60 p-0 focus-visible:ring-1 focus-visible:ring-foreground/20" style={{ backgroundColor: swatch }} onClick={() => commitHsva(parseColor(swatch))} aria-label={`Use ${swatch}`} />
+            ))}
+          </div>
         </div>
+        <style jsx global>{`
+          .figma-range::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 9999px;
+            border: 2px solid #ffffff;
+            background: #2563eb;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+            margin-top: -2px;
+          }
+          .figma-range::-webkit-slider-runnable-track { height: 100%; border-radius: 9999px; }
+          .figma-range::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 9999px;
+            border: 2px solid #ffffff;
+            background: #2563eb;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+          }
+          .figma-range::-moz-range-track { height: 100%; border-radius: 9999px; }
+        `}</style>
       </PopoverContent>
     </Popover>
   );
