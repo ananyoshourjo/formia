@@ -146,6 +146,8 @@ const elementSnapshots = new WeakMap();
 const touchedElements = new Set();
 const structureSnapshots = new WeakMap();
 const structuralMoves = new Map();
+const deletedElements = new Map();
+const duplicatedElements = new Map();
 let isReapplyingStructuralMoves = false;
 let layerPointerDrag = null;
 let suppressNextClick = false;
@@ -525,12 +527,93 @@ function moveLayer(selectionId, targetParentId, beforeSelectionId) {
   commitElementMove(element, { parent: targetParent, before: beforeElement });
 }
 
+function moveSelectedLayer(direction) {
+  if (!(selectedElement instanceof Element) || isDocumentSurface(selectedElement) || !selectedElement.parentElement) return false;
+
+  const element = selectedElement;
+  const parent = element.parentElement;
+  const previousSibling = element.previousElementSibling;
+  const nextSibling = element.nextElementSibling;
+  const movesUp = direction === "up" || direction === "left";
+
+  if (movesUp) {
+    if (!previousSibling) return false;
+    return commitElementMove(element, { parent, before: previousSibling });
+  }
+
+  if (direction === "down" || direction === "right") {
+    if (!nextSibling) return false;
+    return commitElementMove(element, { parent, before: nextSibling.nextElementSibling });
+  }
+
+  return false;
+}
+
 function commitElementMove(element, target) {
   if (!moveElementTo(element, target.parent, target.before)) return false;
 
   selectElement(element);
   moveOverlay(element);
   ipcRenderer.sendToHost("formia:element-selected", selectionPayload(element));
+  sendLayerTree();
+  return true;
+}
+
+function clearLayerSelectionIds(element) {
+  element.removeAttribute(selectionAttribute);
+  element.querySelectorAll(`[${selectionAttribute}]`).forEach((child) => child.removeAttribute(selectionAttribute));
+}
+
+function deleteSelectedLayer() {
+  if (!(selectedElement instanceof Element) || isDocumentSurface(selectedElement) || !selectedElement.parentElement) return false;
+
+  finishTextEditing();
+  const element = selectedElement;
+  const snapshot = rememberStructure(element);
+  const details = inspectElement(element);
+  const duplicated = duplicatedElements.get(element);
+
+  structuralMoves.delete(element);
+  if (duplicated) duplicatedElements.delete(element);
+  else {
+    deletedElements.set(element, {
+      element,
+      originalParent: snapshot.parent,
+      originalIndex: snapshot.index,
+      details,
+    });
+  }
+
+  selectedElement = null;
+  hoveredElement = null;
+  hideOverlay();
+  hideHoverOverlay();
+  element.remove();
+  ipcRenderer.sendToHost("formia:selection-cleared");
+  sendLayerTree();
+  sendPreviewState();
+  return true;
+}
+
+function duplicateSelectedLayer() {
+  if (!(selectedElement instanceof Element) || isDocumentSurface(selectedElement) || !selectedElement.parentElement) return false;
+
+  finishTextEditing();
+  const source = selectedElement;
+  const parent = source.parentElement;
+  const sourceDetails = inspectElement(source);
+  const clone = source.cloneNode(true);
+  clearLayerSelectionIds(clone);
+  parent.insertBefore(clone, source.nextElementSibling);
+  duplicatedElements.set(clone, {
+    clone,
+    sourceSelectionId: sourceDetails.selectionId,
+    sourceDetails,
+  });
+
+  selectElement(clone);
+  moveOverlay(clone);
+  ipcRenderer.sendToHost("formia:element-selected", selectionPayload(clone));
   sendLayerTree();
   return true;
 }
@@ -655,6 +738,20 @@ function resetAllOverrides() {
   finishTextEditing();
   restoreStructuralOverrides();
 
+  for (const { clone } of Array.from(duplicatedElements.values()).reverse()) {
+    if (clone.isConnected) clone.remove();
+  }
+  duplicatedElements.clear();
+
+  for (const { element, originalParent, originalIndex } of Array.from(deletedElements.values()).reverse()) {
+    if (!element.isConnected && originalParent?.isConnected) {
+      const siblings = Array.from(originalParent.children);
+      const originalReference = siblings[originalIndex] || null;
+      originalParent.insertBefore(element, originalReference);
+    }
+  }
+  deletedElements.clear();
+
   for (const element of touchedElements) {
     const snapshot = elementSnapshots.get(element);
     if (!snapshot) continue;
@@ -679,6 +776,7 @@ function resetAllOverrides() {
   touchedElements.clear();
   sendUpdatedSelection();
   sendLayerTree();
+  sendPreviewState();
 }
 
 function inspectAtPoint(x, y) {
@@ -1074,7 +1172,40 @@ function collectPreviewChanges() {
 }
 
 function collectStructuralPreviewChanges() {
-  return Array.from(structuralMoves.values()).flatMap((move) => {
+  const deletedChanges = Array.from(deletedElements.values()).map(({ originalParent, originalIndex, details }) => ({
+    selectionId: details.selectionId,
+    tagName: details.tagName,
+    source: details.react?.source || null,
+    text: details.text,
+    changes: [{
+      kind: "structure",
+      operation: "delete",
+      property: "layer",
+      from: `${layerDescription(originalParent)} at index ${originalIndex}`,
+      to: "deleted",
+    }],
+  }));
+
+  const duplicatedChanges = Array.from(duplicatedElements.values()).flatMap(({ clone, sourceSelectionId, sourceDetails }) => {
+    if (!clone.isConnected || !clone.parentElement) return [];
+
+    const details = inspectElement(clone);
+    return [{
+      selectionId: details.selectionId,
+      tagName: details.tagName,
+      source: sourceDetails.react?.source || details.react?.source || null,
+      text: details.text,
+      changes: [{
+        kind: "structure",
+        operation: "duplicate",
+        property: "layer",
+        from: sourceSelectionId ? `layer ${sourceSelectionId}` : layerDescription(clone),
+        to: `${layerDescription(clone.parentElement)} at index ${layerIndex(clone)}`,
+      }],
+    }];
+  });
+
+  const moveChanges = Array.from(structuralMoves.values()).flatMap((move) => {
     if (!move.element.isConnected || !move.targetParent.isConnected) return [];
 
     const details = inspectElement(move.element);
@@ -1085,11 +1216,20 @@ function collectStructuralPreviewChanges() {
       text: details.text,
       changes: [{
         kind: "structure",
+        operation: "move",
         property: "parent/order",
         from: `${layerDescription(move.originalParent)} at index ${move.originalIndex}`,
         to: `${layerDescription(move.targetParent)} at index ${layerIndex(move.element)}`,
       }],
     }];
+  });
+
+  return [...deletedChanges, ...duplicatedChanges, ...moveChanges];
+}
+
+function sendPreviewState() {
+  ipcRenderer.sendToHost("formia:preview-state", {
+    changes: [...collectPreviewChanges(), ...collectStructuralPreviewChanges()],
   });
 }
 
@@ -1206,8 +1346,12 @@ function isCanvasShortcut(event) {
 
   if (event.code === "Space" && !event.ctrlKey && !event.metaKey) return true;
 
+  if (!event.shiftKey && !event.ctrlKey && !event.metaKey && activeTool === "select" && selectedElement && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.code)) return true;
+
+  if (event.code === "Delete" || event.code === "Backspace") return true;
+
   const hasModifier = event.ctrlKey || event.metaKey;
-  if (hasModifier) return !event.shiftKey && event.code === "BracketLeft";
+  if (hasModifier) return !event.shiftKey && (event.code === "BracketLeft" || event.code === "KeyD");
 
   if (event.code === "Equal" || event.code === "NumpadAdd" || event.code === "Minus" || event.code === "NumpadSubtract") return true;
   if (event.shiftKey) return false;
@@ -1322,6 +1466,18 @@ ipcRenderer.on("formia:move-layer", (_event, payload) => {
   moveLayer(payload?.sourceSelectionId, payload?.targetParentId || null, payload?.beforeSelectionId || null);
 });
 
+ipcRenderer.on("formia:delete-selected-layer", () => {
+  deleteSelectedLayer();
+});
+
+ipcRenderer.on("formia:duplicate-selected-layer", () => {
+  duplicateSelectedLayer();
+});
+
+ipcRenderer.on("formia:move-selected-layer", (_event, direction) => {
+  moveSelectedLayer(direction);
+});
+
 ipcRenderer.on("formia:apply-style", (_event, payload) => {
   applyStyle(payload?.property, payload?.value);
 });
@@ -1351,5 +1507,5 @@ ipcRenderer.on("formia:reset-overrides", () => {
 });
 
 ipcRenderer.on("formia:get-preview-state", () => {
-  ipcRenderer.sendToHost("formia:preview-state", { changes: collectPreviewChanges() });
+  sendPreviewState();
 });

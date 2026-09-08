@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.10.0] - 2026-09-09
+
+### Added
+
+- Added linked spacing controls for paired margin and padding edges.
+- Added responsive Build button feedback while Codex is working.
+
+### Changed
+
+- Improved numeric scrubbing across spacing controls and preserved CSS units when committing values.
+- Improved the font picker with accurate installed font-family discovery, faster loading, and better font previews.
+- Refined the Properties panel controls, typography fields, color picker, and layout editing interactions.
+
 ## [0.9.0] - 2026-09-08
 
 ### Added
