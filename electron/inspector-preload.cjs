@@ -68,13 +68,14 @@ window.addEventListener("popstate", () => {
 let activeTool = "interact";
 let hoveredElement = null;
 let selectedElement = null;
+let selectedElementIdentity = null;
 let textEditingState = null;
 let selectionSequence = 0;
 let layerTreeObserver = null;
 let layerTreeTimer = null;
 
 const selectionAttribute = "data-formia-selection-id";
-const layerTreeExcludedTags = new Set(["SCRIPT", "STYLE", "LINK", "META", "TITLE", "NOSCRIPT", "TEMPLATE", "SVG", "PATH", "CIRCLE", "RECT", "LINE", "POLYLINE", "POLYGON"]);
+const layerTreeExcludedTags = new Set(["SCRIPT", "STYLE", "LINK", "META", "TITLE", "NOSCRIPT", "TEMPLATE", "PATH", "CIRCLE", "RECT", "LINE", "POLYLINE", "POLYGON"]);
 const maximumLayerTreeNodes = 800;
 const maximumLayerTreeDepth = 12;
 const editableStyleProperties = new Set([
@@ -149,6 +150,7 @@ const structuralMoves = new Map();
 const deletedElements = new Map();
 const duplicatedElements = new Map();
 let isReapplyingStructuralMoves = false;
+let isRebindingPreviewOverrides = false;
 let layerPointerDrag = null;
 let suppressNextClick = false;
 let canvasDropTarget = null;
@@ -335,11 +337,160 @@ function snapshotFor(element) {
       styles: new Map(),
       className: undefined,
       html: undefined,
+      identity: elementIdentity(element),
     };
     elementSnapshots.set(element, snapshot);
     touchedElements.add(element);
   }
   return snapshot;
+}
+
+function elementIdentity(element) {
+  const react = getReactDetails(element);
+  return {
+    tagName: element.tagName,
+    id: element.id || "",
+    className: typeof element.className === "string" ? element.className : "",
+    text: (element.textContent || "").trim().replace(/\s+/g, " ").slice(0, 120),
+    source: react?.source || null,
+    path: elementPath(element),
+  };
+}
+
+function elementPath(element) {
+  const indexes = [];
+  let current = element;
+  while (current?.parentElement && current.parentElement !== document.body) {
+    indexes.unshift(Array.from(current.parentElement.children).indexOf(current));
+    current = current.parentElement;
+  }
+  if (current?.parentElement === document.body) indexes.unshift(Array.from(document.body.children).indexOf(current));
+  return indexes.join(".");
+}
+
+function identityFromDetails(details) {
+  return {
+    tagName: typeof details?.tagName === "string" ? details.tagName.toUpperCase() : "",
+    id: details?.id || "",
+    className: details?.className || "",
+    text: details?.text || "",
+    source: details?.react?.source || details?.source || null,
+  };
+}
+
+function identityScore(element, identity) {
+  if (!(element instanceof Element) || !identity) return 0;
+  if (identity.id && element.id !== identity.id) return 0;
+  if (identity.tagName && element.tagName !== identity.tagName) return 0;
+
+  let score = identity.id ? 100 : 0;
+  if (identity.source && getReactDetails(element)?.source === identity.source) score += 80;
+  if (identity.className && element.className === identity.className) score += 20;
+  if (identity.text && (element.textContent || "").trim().replace(/\s+/g, " ").startsWith(identity.text)) score += 10;
+  if (identity.path && elementPath(element) === identity.path) score += 5;
+  return score || (identity.tagName ? 1 : 0);
+}
+
+function findPreviewReplacement(identity) {
+  if (!identity || !document.body) return null;
+  const candidates = Array.from(document.querySelectorAll("body *"))
+    .filter((element) => !layerTreeExcludedTags.has(element.tagName))
+    .map((element) => ({ element, score: identityScore(element, identity) }))
+    .filter(({ score }) => score > 0)
+    .sort((left, right) => right.score - left.score);
+  if (candidates.length === 0 || candidates[0].score <= 1) return null;
+  if (candidates[1]?.score === candidates[0].score) return null;
+  return candidates[0].element;
+}
+
+function capturePreviewOverride(element, snapshot) {
+  if (!snapshot) return;
+  snapshot.overrides = snapshot.overrides || { styles: new Map(), className: undefined, html: undefined };
+
+  for (const [cssName, original] of snapshot.styles) {
+    const current = element.style.getPropertyValue(cssName);
+    const priority = element.style.getPropertyPriority(cssName);
+    if (current !== original.value || priority !== original.priority) snapshot.overrides.styles.set(cssName, { value: current, priority });
+  }
+  if (snapshot.className !== undefined && element.getAttribute("class") !== snapshot.className) snapshot.overrides.className = element.getAttribute("class");
+  if (snapshot.html !== undefined && element.innerHTML !== snapshot.html) snapshot.overrides.html = element.innerHTML;
+}
+
+function applyPreviewOverride(element, snapshot) {
+  if (!snapshot?.overrides) return;
+  for (const [cssName, current] of snapshot.overrides.styles) {
+    if (current.value) element.style.setProperty(cssName, current.value, current.priority);
+    else element.style.removeProperty(cssName);
+  }
+  if (snapshot.overrides.className !== undefined) {
+    if (snapshot.overrides.className === null) element.removeAttribute("class");
+    else element.setAttribute("class", snapshot.overrides.className);
+  }
+  if (snapshot.overrides.html !== undefined) element.innerHTML = snapshot.overrides.html;
+}
+
+function rebindPreviewOverrides() {
+  if (isRebindingPreviewOverrides) return;
+  isRebindingPreviewOverrides = true;
+  try {
+    const replacements = new Map();
+    for (const element of Array.from(touchedElements)) {
+      const snapshot = elementSnapshots.get(element);
+      if (!snapshot) continue;
+      if (element.isConnected) {
+        capturePreviewOverride(element, snapshot);
+        continue;
+      }
+      capturePreviewOverride(element, snapshot);
+      const replacement = findPreviewReplacement(snapshot.identity);
+      if (!replacement) continue;
+      replacements.set(element, replacement);
+      applyPreviewOverride(replacement, snapshot);
+      elementSnapshots.set(replacement, snapshot);
+      touchedElements.delete(element);
+      touchedElements.add(replacement);
+      if (selectedElement === element) selectedElement = replacement;
+    }
+
+    if (selectedElement && !selectedElement.isConnected && selectedElementIdentity) {
+      const replacement = findPreviewReplacement(selectedElementIdentity);
+      if (replacement) selectedElement = replacement;
+    }
+
+    for (const move of structuralMoves.values()) {
+      const replacement = replacements.get(move.element) || (!move.element.isConnected ? findPreviewReplacement(move.elementIdentity) : move.element);
+      const targetParent = replacements.get(move.targetParent) || (!move.targetParent.isConnected ? findPreviewReplacement(move.targetParentIdentity) : move.targetParent);
+      if (replacement instanceof Element) move.element = replacement;
+      if (targetParent instanceof Element) move.targetParent = targetParent;
+    }
+
+    for (const entry of deletedElements.values()) {
+      if (entry.element.isConnected) continue;
+      const replacement = findPreviewReplacement(entry.identity || identityFromDetails(entry.details));
+      if (replacement instanceof Element && !isDocumentSurface(replacement)) {
+        entry.element = replacement;
+        if (!entry.originalParent?.isConnected) entry.originalParent = findPreviewReplacement(entry.originalParentIdentity);
+        replacement.remove();
+      }
+    }
+
+    for (const entry of duplicatedElements.values()) {
+      if (entry.clone.isConnected) continue;
+      const source = findPreviewReplacement(entry.sourceIdentity);
+      if (!(source instanceof Element) || !source.parentElement) continue;
+      const clone = source.cloneNode(true);
+      clearLayerSelectionIds(clone);
+      source.parentElement.insertBefore(clone, source.nextElementSibling);
+      entry.clone = clone;
+    }
+
+    if (selectedElement instanceof Element && selectedElement.isConnected) {
+      ensureLayerSelectionId(selectedElement);
+      moveOverlay(selectedElement);
+    }
+  } finally {
+    isRebindingPreviewOverrides = false;
+  }
 }
 
 function rememberInlineStyle(element, cssName) {
@@ -409,6 +560,7 @@ function beginTextEditing(element) {
 function selectElement(element) {
   if (textEditingState?.element !== element) finishTextEditing();
   selectedElement = element;
+  selectedElementIdentity = elementIdentity(element);
   hideHoverOverlay();
   ensureLayerSelectionId(selectedElement);
 }
@@ -426,6 +578,7 @@ function ensureLayerSelectionId(element) {
 function clearSelection() {
   finishTextEditing();
   selectedElement = null;
+  selectedElementIdentity = null;
   hideOverlay();
   ipcRenderer.sendToHost("formia:selection-cleared");
 }
@@ -435,8 +588,7 @@ function isDocumentSurface(element) {
 }
 
 function isSelectionBackground(element) {
-  if (isDocumentSurface(element)) return true;
-  return Boolean(selectedElement && element !== selectedElement && element.contains(selectedElement));
+  return isDocumentSurface(element);
 }
 
 function layerIndex(element) {
@@ -482,11 +634,14 @@ function moveElementTo(element, targetParent, beforeElement = null) {
   } else {
     structuralMoves.set(element, {
       element,
+      elementIdentity: elementIdentity(element),
       originalParent: snapshot.parent,
       originalNextSibling: snapshot.nextSibling,
       originalIndex: snapshot.index,
       targetParent,
+      targetParentIdentity: elementIdentity(targetParent),
       targetBefore: beforeElement,
+      targetBeforeIdentity: beforeElement ? elementIdentity(beforeElement) : null,
     });
   }
 
@@ -511,8 +666,11 @@ function reapplyStructuralOverrides() {
   isReapplyingStructuralMoves = true;
   for (const move of structuralMoves.values()) {
     if (!move.element.isConnected || !move.targetParent.isConnected) continue;
+    if (move.targetBefore && move.targetBefore.parentElement !== move.targetParent) {
+      move.targetBefore = move.targetBefore.isConnected ? null : findPreviewReplacement(move.targetBeforeIdentity);
+    }
     if (move.element.parentElement !== move.targetParent || move.element.nextElementSibling !== move.targetBefore) {
-      move.targetParent.insertBefore(move.element, move.targetBefore);
+      move.targetParent.insertBefore(move.element, move.targetBefore || null);
     }
   }
   isReapplyingStructuralMoves = false;
@@ -578,7 +736,9 @@ function deleteSelectedLayer() {
   else {
     deletedElements.set(element, {
       element,
+      identity: elementIdentity(element),
       originalParent: snapshot.parent,
+      originalParentIdentity: snapshot.parent ? elementIdentity(snapshot.parent) : null,
       originalIndex: snapshot.index,
       details,
     });
@@ -609,6 +769,8 @@ function duplicateSelectedLayer() {
     clone,
     sourceSelectionId: sourceDetails.selectionId,
     sourceDetails,
+    sourceIdentity: elementIdentity(source),
+    parentIdentity: elementIdentity(parent),
   });
 
   selectElement(clone);
@@ -851,6 +1013,7 @@ function collectLayerTree() {
 
 function sendLayerTree() {
   if (!document.body) return;
+  rebindPreviewOverrides();
   reapplyStructuralOverrides();
   ipcRenderer.sendToHost("formia:layer-tree", { nodes: collectLayerTree() });
 }
@@ -1024,8 +1187,12 @@ function getReactDetails(element) {
 
 function inspectElement(element) {
   const computed = getComputedStyle(element);
-  const authoredStyle = (property, computedValue) =>
-    element.style.getPropertyValue(property) || computedValue;
+  const styleOrigins = {};
+  const authoredStyle = (property, computedValue) => {
+    const authored = element.style.getPropertyValue(property);
+    styleOrigins[property] = authored ? "inline" : "computed";
+    return authored || computedValue;
+  };
   const rect = element.getBoundingClientRect();
   return {
     selectionId: element.getAttribute(selectionAttribute),
@@ -1046,68 +1213,30 @@ function inspectElement(element) {
       y: Math.round(rect.y * 100) / 100,
     },
     styles: {
-      width: authoredStyle("width", computed.width),
-      height: authoredStyle("height", computed.height),
-      minWidth: authoredStyle("min-width", computed.minWidth),
-      minHeight: authoredStyle("min-height", computed.minHeight),
-      transform: element.style.getPropertyValue("transform") || computed.transform,
-      display: computed.display,
-      position: computed.position,
-      top: computed.top,
-      bottom: computed.bottom,
-      right: computed.right,
-      left: computed.left,
-      flexDirection: computed.flexDirection,
-      flexWrap: computed.flexWrap,
-      alignContent: computed.alignContent,
-      rowGap: computed.rowGap,
-      columnGap: computed.columnGap,
-      flexGrow: computed.flexGrow,
-      flexShrink: computed.flexShrink,
-      flexBasis: authoredStyle("flex-basis", computed.flexBasis),
-      order: computed.order,
-      alignSelf: computed.alignSelf,
-      justifySelf: computed.justifySelf,
-      gridTemplateColumns: computed.gridTemplateColumns,
-      gridTemplateRows: computed.gridTemplateRows,
-      gridAutoFlow: computed.gridAutoFlow,
-      gridColumnStart: computed.gridColumnStart,
-      gridColumnEnd: computed.gridColumnEnd,
-      gridRowStart: computed.gridRowStart,
-      gridRowEnd: computed.gridRowEnd,
-      gridArea: computed.gridArea,
-      overflow: computed.overflow,
-      boxSizing: computed.boxSizing,
-      zIndex: authoredStyle("z-index", computed.zIndex),
-      color: computed.color,
-      backgroundColor: computed.backgroundColor,
-      fontFamily: computed.fontFamily,
-      fontSize: computed.fontSize,
-      fontWeight: computed.fontWeight,
-      lineHeight: computed.lineHeight,
-      letterSpacing: computed.letterSpacing,
-      textAlign: computed.textAlign,
-      textTransform: computed.textTransform,
-      textDecorationLine: computed.textDecorationLine,
-      margin: computed.margin,
-      padding: computed.padding,
-      marginTop: computed.marginTop,
-      marginRight: computed.marginRight,
-      marginBottom: computed.marginBottom,
-      marginLeft: computed.marginLeft,
-      paddingTop: computed.paddingTop,
-      paddingRight: computed.paddingRight,
-      paddingBottom: computed.paddingBottom,
-      paddingLeft: computed.paddingLeft,
-      border: computed.border,
-      borderStyle: computed.borderStyle,
-      borderWidth: computed.borderWidth,
-      borderColor: computed.borderColor,
-      borderRadius: computed.borderRadius,
-      gap: authoredStyle("gap", computed.gap),
-      alignItems: computed.alignItems,
-      justifyContent: computed.justifyContent,
+      width: authoredStyle("width", computed.width), height: authoredStyle("height", computed.height),
+      minWidth: authoredStyle("min-width", computed.minWidth), minHeight: authoredStyle("min-height", computed.minHeight),
+      transform: authoredStyle("transform", computed.transform), display: authoredStyle("display", computed.display),
+      position: authoredStyle("position", computed.position), top: authoredStyle("top", computed.top), bottom: authoredStyle("bottom", computed.bottom),
+      right: authoredStyle("right", computed.right), left: authoredStyle("left", computed.left), flexDirection: authoredStyle("flex-direction", computed.flexDirection),
+      flexWrap: authoredStyle("flex-wrap", computed.flexWrap), alignContent: authoredStyle("align-content", computed.alignContent), rowGap: authoredStyle("row-gap", computed.rowGap),
+      columnGap: authoredStyle("column-gap", computed.columnGap), flexGrow: authoredStyle("flex-grow", computed.flexGrow), flexShrink: authoredStyle("flex-shrink", computed.flexShrink),
+      flexBasis: authoredStyle("flex-basis", computed.flexBasis), order: authoredStyle("order", computed.order), alignSelf: authoredStyle("align-self", computed.alignSelf),
+      justifySelf: authoredStyle("justify-self", computed.justifySelf), gridTemplateColumns: authoredStyle("grid-template-columns", computed.gridTemplateColumns),
+      gridTemplateRows: authoredStyle("grid-template-rows", computed.gridTemplateRows), gridAutoFlow: authoredStyle("grid-auto-flow", computed.gridAutoFlow),
+      gridColumnStart: authoredStyle("grid-column-start", computed.gridColumnStart), gridColumnEnd: authoredStyle("grid-column-end", computed.gridColumnEnd),
+      gridRowStart: authoredStyle("grid-row-start", computed.gridRowStart), gridRowEnd: authoredStyle("grid-row-end", computed.gridRowEnd), gridArea: authoredStyle("grid-area", computed.gridArea),
+      overflow: authoredStyle("overflow", computed.overflow), boxSizing: authoredStyle("box-sizing", computed.boxSizing), zIndex: authoredStyle("z-index", computed.zIndex),
+      color: authoredStyle("color", computed.color), backgroundColor: authoredStyle("background-color", computed.backgroundColor), fontFamily: authoredStyle("font-family", computed.fontFamily),
+      fontSize: authoredStyle("font-size", computed.fontSize), fontWeight: authoredStyle("font-weight", computed.fontWeight), lineHeight: authoredStyle("line-height", computed.lineHeight),
+      letterSpacing: authoredStyle("letter-spacing", computed.letterSpacing), textAlign: authoredStyle("text-align", computed.textAlign), textTransform: authoredStyle("text-transform", computed.textTransform),
+      textDecorationLine: authoredStyle("text-decoration-line", computed.textDecorationLine), margin: authoredStyle("margin", computed.margin), padding: authoredStyle("padding", computed.padding),
+      marginTop: authoredStyle("margin-top", computed.marginTop), marginRight: authoredStyle("margin-right", computed.marginRight), marginBottom: authoredStyle("margin-bottom", computed.marginBottom), marginLeft: authoredStyle("margin-left", computed.marginLeft),
+      paddingTop: authoredStyle("padding-top", computed.paddingTop), paddingRight: authoredStyle("padding-right", computed.paddingRight), paddingBottom: authoredStyle("padding-bottom", computed.paddingBottom), paddingLeft: authoredStyle("padding-left", computed.paddingLeft),
+      border: authoredStyle("border", computed.border), borderStyle: authoredStyle("border-style", computed.borderStyle), borderWidth: authoredStyle("border-width", computed.borderWidth),
+      borderColor: authoredStyle("border-color", computed.borderColor), borderRadius: authoredStyle("border-radius", computed.borderRadius), gap: authoredStyle("gap", computed.gap),
+      alignItems: authoredStyle("align-items", computed.alignItems), justifyContent: authoredStyle("justify-content", computed.justifyContent),
     },
+    styleOrigins,
     parentLayout: element.parentElement
       ? { display: getComputedStyle(element.parentElement).display }
       : null,

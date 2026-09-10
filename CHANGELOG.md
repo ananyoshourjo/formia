@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## [1.0.0] - 2026-09-10
+
+### Added
+
+- Added a safer, more resilient desktop workflow for opening local React projects and running their development servers.
+- Added first-run guidance, Codex readiness feedback, actionable server diagnostics, Build cancellation, and a ten-minute Build safety timeout.
+- Added temporary visual previews with reset support, persistent layer operations, and typed renderer-to-inspector contracts.
+- Added a Windows application icon, installer metadata, checksum generation, project documentation, security guidance, and CI checks.
+
+### Changed
+
+- Refined the Properties panel across layout, spacing, typography, color, border, positioning, transform, and sizing controls.
+- Improved numeric scrubbing, font discovery and fallback preservation, preview recovery after rerenders, and project session isolation.
+- Hardened desktop IPC, local project path handling, process shutdown, navigation, permissions, and error recovery.
+- Reworked the README and GitHub project description around Formia’s visual-editing workflow.
+
+### Fixed
+
+- Fixed stale preview selections and staged changes after project rerenders.
+- Removed obsolete starter UI and the previous application icon asset.
+
 ## [0.11.0] - 2026-09-10
 
 ### Added

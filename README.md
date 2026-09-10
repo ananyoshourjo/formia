@@ -1,62 +1,81 @@
 # Formia
 
-Formia is a Windows desktop visual editor for local React projects. Open a project, select an element, make a focused visual change, and use **Build** to ask Codex to implement that change in the real source code.
+Formia is a Windows desktop visual editor for local React applications.
 
-The connected project remains the source of truth. Formia does not convert it into a proprietary design file or replace its framework, routing, state, dependencies, or component system.
+Open a running project, select an element, adjust it visually, and use **Build** to ask Codex to apply the change to the real source code. Formia is designed to make small interface changes feel direct: see the result first, then let your coding agent handle the implementation.
 
-## What Formia supports
+The connected project remains the source of truth. Formia does not turn your project into a proprietary design file or replace its framework, routing, state, dependencies, or component system.
 
-- Local Next.js and Vite projects with a `dev`, `start`, or `serve` script.
-- npm, pnpm, yarn, and Bun package managers.
-- Live interaction, element selection, inline text editing, and a rendered Layers tree.
-- Focused controls for layout, spacing, typography, color, borders, and simple structural edits.
-- Temporary visual previews followed by Codex-backed source implementation.
+## What you can do
 
-Formia is intentionally focused on small visual changes to existing interfaces. Responsive breakpoint editing, broad component generation, deployment, and collaboration are planned after v1.
+- Open local Next.js and Vite projects from the desktop app.
+- Inspect the rendered page and its Layers tree.
+- Switch between Interact, Select, and Text tools.
+- Edit layout, sizing, spacing, typography, colors, borders, positioning, and transforms.
+- Scrub numeric properties with the mouse while keeping their values editable.
+- Make temporary preview changes, reset them, or keep refining them before Build.
+- Reorder, duplicate, and delete layers in the visual preview.
+- Ask Codex to implement the staged visual changes in the selected project.
+- Restart a project server and copy actionable diagnostics when something goes wrong.
+
+## How it works
+
+1. Choose **Open project** and select a local React project.
+2. Formia starts or reconnects to the project’s development server.
+3. Select an element in the canvas or Layers panel.
+4. Adjust its properties and review the temporary preview.
+5. Press **Build** to send the requested visual intent to Codex.
+6. Formia refreshes the project so the source implementation becomes the new baseline.
+
+Preview changes are intentionally temporary. Use **Build → Reset design** to discard them without modifying the project source.
 
 ## Requirements
 
-- A Windows desktop.
-- A local React project whose dependencies are already installed.
-- The Codex CLI installed, available on `PATH`, and signed in for Build.
+- Windows.
+- A local React project with its dependencies installed.
+- A `dev`, `start`, or `serve` script in the project’s `package.json`.
+- npm, pnpm, yarn, or Bun for the project’s package manager.
+- The Codex CLI installed, available on `PATH`, and signed in if you want to use Build.
 
-Formia checks Codex availability when it starts. Projects can still be opened and edited visually when Codex is unavailable, but Build remains disabled until Codex is ready.
+Projects can be opened and edited visually when Codex is unavailable. Build becomes available after Formia confirms that Codex is ready.
 
-## Using Formia
+## Safety and project boundary
 
-1. Open Formia and choose **Open project**.
-2. Select a local Next.js or Vite project.
-3. Wait for its development server to appear in the canvas.
-4. Use **Interact**, **Select**, or **Text** to work with the running application.
-5. Make a visual change in Properties.
-6. Press **Build** to have Codex apply the requested change to the project.
+Formia is intended for projects you trust. It starts the selected project’s development server locally. When you press Build, Codex receives workspace-write access to that selected project so it can implement the requested change.
 
-Use **Build → Reset design** to discard temporary preview changes. Server failures include retry and copyable diagnostics.
+Formia does not upload your project as part of the editor workflow. Do not open an untrusted project. Read [SECURITY.md](./SECURITY.md) for the complete security boundary and reporting guidance.
 
 ## Development
 
+Install dependencies and start the renderer and desktop shell:
+
 ```powershell
-npm install
+npm ci
 npm run dev
 ```
 
-Useful checks and packaging commands:
+Run the main checks:
 
 ```powershell
 npm run lint
+npm test
 npm run build
-npm run package:desktop
+npm audit --audit-level=high
+```
+
+Build the Windows desktop artifacts:
+
+```powershell
 npm run build:desktop
 ```
 
-Desktop output is written to `release\win-unpacked\Formia.exe`; the installer is written to `release\Formia-<version>-Setup.exe`.
+The unpacked application is written to `release\win-unpacked\Formia.exe`. The installer and checksum are written to `release\`.
 
-See [project.md](./project.md) for product scope and [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the implementation map.
-Stable publication requirements are documented in [docs/RELEASE.md](./docs/RELEASE.md), and notable changes are tracked in [CHANGELOG.md](./CHANGELOG.md).
+See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the implementation map, [project.md](./project.md) for product scope, and [docs/RELEASE.md](./docs/RELEASE.md) for the stable release checklist.
 
-## Security boundary
+## Current focus
 
-Formia starts the selected project's development server and gives Codex workspace-write access to that selected project when the user presses Build. Do not open an untrusted project. See [SECURITY.md](./SECURITY.md) for the full boundary and reporting guidance.
+Formia is focused on precise, local visual edits to existing interfaces. Responsive breakpoint editing, broad component generation, deployment, and collaboration are outside the current product surface and may be explored later.
 
 ## License
 

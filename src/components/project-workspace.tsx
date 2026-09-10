@@ -23,7 +23,7 @@ import { ColorPicker } from "@/components/ui/color-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Hint } from "@/components/ui/tooltip";
 import { WindowControls } from "@/components/window-controls";
-import { desktopErrorMessage, type CodexAvailability, type CodexStatus, type ProjectServerStatus } from "@/lib/desktop-contracts";
+import { desktopErrorMessage, isCanvasKeyboardInput, isCanvasWheelInput, isLayerTreePayload, isPreviewStatePayload, isSelectionPayload, type CanvasMessageArgs, type CanvasMessageChannel, type CodexAvailability, type CodexStatus, type ProjectServerStatus } from "@/lib/desktop-contracts";
 import { toolCursor, type ToolName } from "@/lib/tool-cursors";
 
 type SelectedElement = {
@@ -36,6 +36,7 @@ type SelectedElement = {
   attributes: Record<string, string>;
   dimensions: Record<string, number>;
   styles: Record<string, string>;
+  styleOrigins?: Record<string, "inline" | "computed">;
   parentLayout: { display: string } | null;
   react: { name: string; props: unknown; source: string | null } | null;
   previewChanges: PreviewChange[];
@@ -2690,16 +2691,16 @@ export function ProjectWorkspace({
     const receiveSelection = (event: Event) => {
       const message = event as FormiaWebviewEvent;
       if (message.channel === "formia:canvas-wheel") {
-        handleWebviewWheelRef.current(message.args[0] as CanvasWheelInput);
+        if (isCanvasWheelInput(message.args[0])) handleWebviewWheelRef.current(message.args[0]);
         return;
       }
       if (message.channel === "formia:canvas-keydown") {
-        shortcutHandlerRef.current(message.args[0] as CanvasKeyboardInput);
+        if (isCanvasKeyboardInput(message.args[0])) shortcutHandlerRef.current(message.args[0]);
         return;
       }
       if (message.channel === "formia:canvas-keyup") {
-        const input = message.args[0] as CanvasKeyboardInput;
-        if (input.code === "Space") setPanMode(false);
+        const input = message.args[0];
+        if (isCanvasKeyboardInput(input) && input.code === "Space") setPanMode(false);
         return;
       }
       if (message.channel === "formia:page-height") {
@@ -2710,19 +2711,20 @@ export function ProjectWorkspace({
         return;
       }
       if (message.channel === "formia:layer-tree") {
-        const payload = message.args[0] as { nodes?: LayerNode[] } | undefined;
-        setLayerTree(Array.isArray(payload?.nodes) ? payload.nodes : []);
+        const payload = message.args[0];
+        if (isLayerTreePayload(payload)) setLayerTree(payload.nodes as LayerNode[]);
         return;
       }
       if (message.channel === "formia:element-selected" || message.channel === "formia:element-updated") {
-        const nextSelection = message.args[0] as SelectedElement;
-        setSelection(nextSelection);
-        setStagedPreviewChanges(Array.isArray(nextSelection.previewChanges) ? nextSelection.previewChanges : []);
+        const nextSelection = message.args[0];
+        if (!isSelectionPayload(nextSelection)) return;
+        setSelection(nextSelection as SelectedElement);
+        setStagedPreviewChanges(Array.isArray(nextSelection.previewChanges) ? nextSelection.previewChanges as PreviewChange[] : []);
         return;
       }
       if (message.channel === "formia:preview-state") {
-        const payload = message.args[0] as { changes?: PreviewChange[] } | undefined;
-        setStagedPreviewChanges(Array.isArray(payload?.changes) ? payload.changes : []);
+        const payload = message.args[0];
+        if (isPreviewStatePayload(payload)) setStagedPreviewChanges(payload.changes as PreviewChange[]);
         return;
       }
       if (message.channel === "formia:selection-cleared") {
@@ -2953,7 +2955,7 @@ export function ProjectWorkspace({
     setIsPanning(false);
   }
 
-  function sendCanvasMessage(channel: string, ...args: unknown[]) {
+  function sendCanvasMessage(channel: CanvasMessageChannel, ...args: CanvasMessageArgs<CanvasMessageChannel>) {
     webviewRef.current?.send(channel, ...args);
   }
 
@@ -3185,6 +3187,7 @@ export function ProjectWorkspace({
       `Project: ${projectName}`,
       projectPath ? `Path: ${projectPath}` : null,
       `Details: ${projectServerStatus.message || "Unknown server error"}`,
+      projectServerStatus.diagnostics ? `Diagnostics:\n${projectServerStatus.diagnostics}` : null,
     ].filter(Boolean).join("\n");
 
     try {
