@@ -9,6 +9,7 @@ const test = require("node:test");
 const {
   canonicalizeProjectPath,
   normalizePackageManager,
+  packageManagerSpawnConfig,
   normalizeProjectUrl,
 } = require("../electron/project-utils.cjs");
 const { normalizeCodexBuildRequest } = require("../electron/ipc-contracts.cjs");
@@ -32,6 +33,12 @@ test("normalizePackageManager falls back to known lockfiles", () => {
   } finally {
     fs.rmSync(projectPath, { recursive: true, force: true });
   }
+});
+
+test("package manager launch uses the Windows shell for command shims", () => {
+  assert.deepEqual(packageManagerSpawnConfig("npm", "win32"), { command: "npm", shell: true });
+  assert.deepEqual(packageManagerSpawnConfig("pnpm", "linux"), { command: "pnpm", shell: false });
+  assert.throws(() => packageManagerSpawnConfig("not-a-package-manager", "win32"), /Unsupported package manager/);
 });
 
 test("canonicalizeProjectPath resolves an existing directory", () => {

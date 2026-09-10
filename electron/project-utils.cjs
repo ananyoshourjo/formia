@@ -32,6 +32,11 @@ function normalizePackageManager(value, projectPath) {
   return supportedPackageManagers.has(declared) ? declared : packageManagerFromLockfiles(projectPath);
 }
 
+function packageManagerSpawnConfig(packageManager, platform = process.platform) {
+  if (!supportedPackageManagers.has(packageManager)) throw new Error("Unsupported package manager.");
+  return { command: packageManager, shell: platform === "win32" };
+}
+
 function canonicalizeProjectPath(value) {
   if (typeof value !== "string" || !value.trim()) throw new Error("Project path is required.");
   const resolved = path.resolve(value.trim());
@@ -53,6 +58,7 @@ function canonicalizeProjectPath(value) {
 module.exports = {
   canonicalizeProjectPath,
   normalizePackageManager,
+  packageManagerSpawnConfig,
   normalizeProjectUrl,
   packageManagerFromLockfiles,
   supportedPackageManagers,

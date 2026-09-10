@@ -9,7 +9,7 @@ const { app, BrowserWindow, dialog, ipcMain, session, shell } = require("electro
 const { CodexAppServer } = require("./codex-app-server.cjs");
 const { normalizeCodexBuildRequest, normalizeProjectPathInput } = require("./ipc-contracts.cjs");
 const { isProcessRunning, stripAnsi, terminateProcessTree, waitForProcessExit } = require("./process-utils.cjs");
-const { canonicalizeProjectPath, normalizePackageManager, normalizeProjectUrl } = require("./project-utils.cjs");
+const { canonicalizeProjectPath, normalizePackageManager, normalizeProjectUrl, packageManagerSpawnConfig } = require("./project-utils.cjs");
 
 const developmentUrl = process.env.ELECTRON_RENDERER_URL;
 let activeCodexJob = null;
@@ -212,10 +212,6 @@ class ProjectDevServer {
     this.ready = false;
   }
 
-  commandFor(packageManager) {
-    return process.platform === "win32" ? `${packageManager}.cmd` : packageManager;
-  }
-
   buildArgs(port) {
     const { packageManager, script, framework } = this.metadata;
     const args = ["run", script];
@@ -272,13 +268,13 @@ class ProjectDevServer {
 
   startAttempt() {
     const { packageManager } = this.metadata;
-    const command = this.commandFor(packageManager);
-    this.process = spawn(command, this.buildArgs(this.port), {
+    const spawnConfig = packageManagerSpawnConfig(packageManager);
+    this.process = spawn(spawnConfig.command, this.buildArgs(this.port), {
       cwd: this.projectPath,
       env: { ...process.env, PORT: String(this.port), HOST: "127.0.0.1", BROWSER: "none" },
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
-      shell: false,
+      shell: spawnConfig.shell,
     });
 
     return new Promise((resolve) => {
