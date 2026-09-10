@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## [1.0.1] - 2026-09-11
+
+### Fixed
+
+- Fixed Windows project-server startup by launching allowlisted package-manager commands through the Windows command shell.
+- Added regression coverage for platform-specific package-manager launch behavior.
+
 ## [1.0.0] - 2026-09-10
 
 ### Added
