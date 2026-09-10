@@ -13,6 +13,8 @@
 # testing
 /coverage
 /.playwright-cli/
+/output/
+/.codex-remote-attachments/
 
 # next.js
 /.next/

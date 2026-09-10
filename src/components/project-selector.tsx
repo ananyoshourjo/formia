@@ -1,18 +1,12 @@
 "use client";
 
-import { type ChangeEvent, type InputHTMLAttributes, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowRightIcon, CircleNotchIcon, FolderOpenIcon, XIcon } from "@phosphor-icons/react";
+import { useState, useSyncExternalStore } from "react";
+import { ArrowRightIcon, CircleNotchIcon, FolderOpenIcon, WarningCircleIcon, XIcon } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
 import { WindowControls } from "@/components/window-controls";
+import { desktopErrorMessage, type CodexAvailability, type Project, type RecentProject } from "@/lib/desktop-contracts";
 
-const directoryInputProps = {
-  webkitdirectory: "",
-  directory: "",
-} as InputHTMLAttributes<HTMLInputElement>;
-
-type Project = { name: string; path: string | null; url?: string | null; error?: string };
-type RecentProject = { name: string; path: string };
 const recentProjectsKey = "formia:recent-projects";
 const recentProjectsEvent = "formia:recent-projects-changed";
 const emptyRecentProjects: RecentProject[] = [];
@@ -71,25 +65,27 @@ function removeRecentProject(projectPath: string) {
   window.dispatchEvent(new Event(recentProjectsEvent));
 }
 
-export function ProjectSelector({ onOpen }: { onOpen: (project: Project) => void }) {
-  const directoryInputRef = useRef<HTMLInputElement>(null);
+export function ProjectSelector({ codexAvailability, onOpen }: { codexAvailability: CodexAvailability; onOpen: (project: Project) => void }) {
   const recentProjects = useSyncExternalStore(subscribeToRecentProjects, readRecentProjects, () => emptyRecentProjects);
   const [openingPath, setOpeningPath] = useState<string | null>(null);
   const [recentError, setRecentError] = useState<{ path: string; message: string } | null>(null);
-
-  function openProject(event: ChangeEvent<HTMLInputElement>) {
-    const firstFile = event.target.files?.[0];
-    if (!firstFile) return;
-
-    const projectName = firstFile.webkitRelativePath.split("/")[0] || "Untitled project";
-    onOpen({ name: projectName, path: null });
-  }
+  const [openError, setOpenError] = useState<string | null>(null);
 
   async function selectProject() {
-    const project = await window.formiaDesktop?.selectProject();
-    if (project) {
-      saveRecentProject(project);
-      onOpen(project);
+    if (!window.formiaDesktop) {
+      setOpenError("Install the Formia desktop app to open and edit local projects.");
+      return;
+    }
+
+    setOpenError(null);
+    try {
+      const project = await window.formiaDesktop.selectProject();
+      if (project) {
+        saveRecentProject(project);
+        onOpen(project);
+      }
+    } catch (error) {
+      setOpenError(desktopErrorMessage(error, "This project could not be opened."));
     }
   }
 
@@ -105,7 +101,7 @@ export function ProjectSelector({ onOpen }: { onOpen: (project: Project) => void
     } catch (error) {
       setRecentError({
         path: project.path,
-        message: error instanceof Error ? error.message : "This project could not be opened.",
+        message: desktopErrorMessage(error, "This project could not be opened."),
       });
     } finally {
       setOpeningPath(null);
@@ -117,14 +113,6 @@ export function ProjectSelector({ onOpen }: { onOpen: (project: Project) => void
       <header className="formia-titlebar flex h-10 shrink-0 border-b border-border bg-white">
         <WindowControls />
       </header>
-      <input
-        ref={directoryInputRef}
-        type="file"
-        multiple
-        className="sr-only"
-        onChange={openProject}
-        {...directoryInputProps}
-      />
       <section className="flex min-h-[calc(100vh-2.5rem)] items-center justify-center px-6 py-12" aria-labelledby="recent-projects-heading">
         <div className="w-full max-w-xl">
           <div className="flex items-center justify-between gap-4">
@@ -133,14 +121,30 @@ export function ProjectSelector({ onOpen }: { onOpen: (project: Project) => void
               type="button"
               size="sm"
               onClick={() => {
-                if (window.formiaDesktop) void selectProject();
-                else directoryInputRef.current?.click();
+                void selectProject();
               }}
             >
               <FolderOpenIcon />
               Open project
             </Button>
           </div>
+
+          {openError ? (
+            <p className="mt-4 flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2.5 text-sm text-destructive" role="alert">
+              <WarningCircleIcon className="mt-0.5 size-4 shrink-0" />
+              <span>{openError}</span>
+            </p>
+          ) : null}
+
+          {codexAvailability.state === "unavailable" ? (
+            <div className="mt-4 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+              <p className="flex items-center gap-2 text-sm font-medium">
+                <WarningCircleIcon className="size-4 shrink-0 text-muted-foreground" />
+                Build setup needed
+              </p>
+              <p className="mt-1 pl-6 text-xs leading-5 text-muted-foreground">{codexAvailability.message}</p>
+            </div>
+          ) : null}
 
           {recentProjects.length > 0 ? (
             <div className="mt-4 overflow-hidden rounded-xl border border-border">
@@ -175,7 +179,16 @@ export function ProjectSelector({ onOpen }: { onOpen: (project: Project) => void
                 );
               })}
             </div>
-          ) : null}
+          ) : (
+            <div className="mt-4 rounded-xl border border-dashed border-border px-4 py-5">
+              <p className="text-sm font-medium">Visually edit your React site</p>
+              <p className="mt-1 max-w-md text-sm leading-6 text-muted-foreground">Open a local Next.js or Vite project, make focused changes on the real running page, then use Build to turn them into code.</p>
+              <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                {codexAvailability.state === "checking" ? <CircleNotchIcon className="size-3.5 animate-spin" /> : <span className={`size-2 rounded-full ${codexAvailability.state === "available" ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />}
+                {codexAvailability.state === "available" ? "Ready to build with Codex" : codexAvailability.state === "checking" ? "Checking Build availability" : "Visual editing is available; Build needs Codex"}
+              </p>
+            </div>
+          )}
         </div>
       </section>
     </main>

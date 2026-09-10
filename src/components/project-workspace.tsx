@@ -1,7 +1,7 @@
 "use client";
 
 import { createElement, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { AlignBottomIcon, AlignCenterHorizontalSimpleIcon, AlignCenterVerticalIcon, AlignCenterVerticalSimpleIcon, AngleIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowLineRightIcon, ArrowLineUpIcon, ArrowRightIcon, ArrowsInLineVerticalIcon, ArrowsOutIcon, ArrowsOutLineHorizontalIcon, ArrowsOutLineVerticalIcon, BoundingBoxIcon, BrowserIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CircleIcon, CircleNotchIcon, ClipboardTextIcon, ColumnsIcon, CompassIcon, CornersOutIcon, CrosshairSimpleIcon, CursorIcon, CursorTextIcon, DotIcon, DotsNineIcon, EraserIcon, EyeIcon, EyeSlashIcon, FlipHorizontalIcon, FlipVerticalIcon, FrameCornersIcon, GearSixIcon, GitCommitIcon, GridFourIcon, HandGrabbingIcon, ImageIcon, LinkSimpleIcon, LinkSimpleHorizontalIcon, ListBulletsIcon, ListDashesIcon, ListNumbersIcon, MinusIcon, MouseScrollIcon, NavigationArrowIcon, ParagraphIcon, PathIcon, PlusIcon, PushPinIcon, RectangleIcon, RowsIcon, ShapesIcon, SidebarIcon, SidebarSimpleIcon, SplitHorizontalIcon, SplitVerticalIcon, SquareIcon, StackIcon, StackSimpleIcon, TableIcon, TerminalWindowIcon, TextHIcon, TextboxIcon, VideoCameraIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { AlignBottomIcon, AlignCenterHorizontalSimpleIcon, AlignCenterVerticalIcon, AlignCenterVerticalSimpleIcon, AngleIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowLineRightIcon, ArrowLineUpIcon, ArrowRightIcon, ArrowsInLineVerticalIcon, ArrowsOutLineHorizontalIcon, ArrowsOutLineVerticalIcon, BoundingBoxIcon, BrowserIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CircleIcon, CircleNotchIcon, ClipboardTextIcon, ColumnsIcon, CompassIcon, CornersOutIcon, CrosshairSimpleIcon, CursorIcon, CursorTextIcon, DotIcon, DotsNineIcon, EraserIcon, EyeIcon, EyeSlashIcon, FlipHorizontalIcon, FlipVerticalIcon, FrameCornersIcon, GearSixIcon, GitCommitIcon, GridFourIcon, ImageIcon, LinkSimpleIcon, LinkSimpleHorizontalIcon, ListBulletsIcon, ListDashesIcon, ListNumbersIcon, MinusIcon, MouseScrollIcon, NavigationArrowIcon, ParagraphIcon, PathIcon, PlusIcon, PushPinIcon, RectangleIcon, RowsIcon, ShapesIcon, SidebarIcon, SidebarSimpleIcon, SplitHorizontalIcon, SplitVerticalIcon, SquareIcon, StackIcon, StackSimpleIcon, TableIcon, TerminalWindowIcon, TextHIcon, TextboxIcon, VideoCameraIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
 import { AlignBottomFilled, AlignHorizontalCenterFilled, AlignLeft2Filled, AlignRight2Filled, AlignTopFilled } from "@mingcute/react/core-filled";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
@@ -23,6 +23,7 @@ import { ColorPicker } from "@/components/ui/color-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Hint } from "@/components/ui/tooltip";
 import { WindowControls } from "@/components/window-controls";
+import { desktopErrorMessage, type CodexAvailability, type CodexStatus, type ProjectServerStatus } from "@/lib/desktop-contracts";
 import { toolCursor, type ToolName } from "@/lib/tool-cursors";
 
 type SelectedElement = {
@@ -73,26 +74,10 @@ type LayerDropTarget = {
 };
 
 const workspaceTools: Array<{ name: ToolName; label: string; shortcut: string; icon: typeof CursorIcon; weight: "fill" | "regular" }> = [
-  { name: "interact", label: "Interact", shortcut: "I", icon: CursorIcon, weight: "fill" },
-  { name: "select", label: "Select", shortcut: "S", icon: NavigationArrowIcon, weight: "fill" },
+  { name: "interact", label: "Interact", shortcut: "I", icon: CursorIcon, weight: "regular" },
+  { name: "select", label: "Select", shortcut: "S", icon: NavigationArrowIcon, weight: "regular" },
   { name: "text", label: "Text", shortcut: "T", icon: CursorTextIcon, weight: "regular" },
 ];
-
-type CodexStatus = {
-  state: "idle" | "working" | "applied" | "failed";
-  message: string;
-};
-
-type ProjectServerStatus = {
-  state: "starting" | "ready" | "failed" | "stopped";
-  url?: string;
-  message: string;
-};
-
-type CodexAvailability = {
-  state: "checking" | "available" | "unavailable";
-  message: string;
-};
 
 type CanvasWheelInput = {
   deltaX: number;
@@ -124,6 +109,16 @@ const getDesktopSnapshot = () => Boolean(window.formiaDesktop?.isDesktop);
 const getDesktopServerSnapshot = () => false;
 const artboardWidth = 1440;
 const minimumArtboardHeight = 900;
+
+function projectSessionPartition(projectPath: string | null) {
+  const value = (projectPath || "untitled").toLowerCase();
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `persist:formia-canvas-${(hash >>> 0).toString(16)}`;
+}
 const minZoom = 0.1;
 const maxZoom = 4;
 
@@ -2354,7 +2349,7 @@ function WorkspaceToolbar({
             type="button"
             variant="ghost"
             size="icon-sm"
-            className={`rounded-[5px] text-muted-foreground hover:text-muted-foreground ${activeTool === name ? "bg-accent hover:bg-accent" : ""}`}
+            className={`rounded-[5px] border text-muted-foreground hover:text-foreground ${activeTool === name ? "border-border bg-transparent text-foreground hover:bg-transparent" : "border-transparent"}`}
             onClick={() => onSelectTool(name)}
             disabled={!isDesktop}
             aria-pressed={activeTool === name}
@@ -2419,7 +2414,10 @@ function PropertiesSidebar({
   canvasBackground,
   canRefreshApp,
   onBuild,
+  onCancelBuild,
   onRestartServer,
+  onCopyServerDiagnostics,
+  serverDiagnosticsCopied,
   onRefreshApp,
   onCanvasBackgroundChange,
   onApplyStyle,
@@ -2439,7 +2437,10 @@ function PropertiesSidebar({
   canvasBackground: string;
   canRefreshApp: boolean;
   onBuild: () => void;
+  onCancelBuild: () => void;
   onRestartServer: () => void;
+  onCopyServerDiagnostics: () => void;
+  serverDiagnosticsCopied: boolean;
   onRefreshApp: () => void;
   onCanvasBackgroundChange: (value: string) => void;
   onApplyStyle: (property: string, value: string) => void;
@@ -2450,26 +2451,27 @@ function PropertiesSidebar({
 }) {
   const buildIndicator = getBuildIndicator(codexAvailability, Boolean(previewChanges.length));
   const isBuilding = codexStatus.state === "working";
-  const buildBlocked = !isDesktop || codexAvailability.state !== "available" || !projectPath || !previewChanges.length || isBuilding;
+  const buildBlocked = !isBuilding && (!isDesktop || codexAvailability.state !== "available" || !projectPath || !previewChanges.length);
 
   return (
     <aside className={`flex h-full w-72 shrink-0 flex-col border-l border-border bg-white text-foreground ${className || ""}`}>
       <header className="shrink-0 border-b border-border bg-background px-3 py-2.5">
         <div className="flex items-center justify-end gap-1">
           <div className="flex items-center gap-0">
-            <Hint content={!isDesktop ? "Open Formia in the desktop app to enable Build" : buildIndicator === "unavailable" || buildIndicator === "checking" ? codexAvailability.message : !projectPath ? "Select a project from the desktop app to enable Build" : buildIndicator === "up-to-date" ? buildIndicatorLabel(buildIndicator) : "Send staged visual changes to Codex"}>
+            <Hint content={isBuilding ? "Cancel the current Build" : !isDesktop ? "Open Formia in the desktop app to enable Build" : buildIndicator === "unavailable" || buildIndicator === "checking" ? codexAvailability.message : !projectPath ? "Select a project from the desktop app to enable Build" : buildIndicator === "up-to-date" ? buildIndicatorLabel(buildIndicator) : "Send staged visual changes to Codex"}>
               <Button
                 type="button"
                 size="lg"
                 className={`rounded-r-none border-r border-primary-foreground/20 pl-4 font-normal ${buildBlocked ? "cursor-not-allowed" : ""}`}
                 onClick={() => {
-                  if (!buildBlocked) onBuild();
+                  if (isBuilding) onCancelBuild();
+                  else if (!buildBlocked) onBuild();
                 }}
                 aria-disabled={buildBlocked}
-                aria-label={isBuilding ? "Building visual changes with Codex" : "Build visual changes with Codex"}
+                aria-label={isBuilding ? "Cancel Build" : "Build visual changes with Codex"}
               >
                 <span className={`size-[6px] shrink-0 rounded-full ${buildIndicatorClass(buildIndicator)}`} aria-hidden="true" />
-                {isBuilding ? "Building" : "Build"}
+                {isBuilding ? "Cancel" : "Build"}
               </Button>
             </Hint>
             <DropdownMenu>
@@ -2521,12 +2523,22 @@ function PropertiesSidebar({
             </Hint>
           ) : null}
           {projectServerStatus.state === "failed" ? (
-            <Hint content={projectServerStatus.message}>
-              <p className="flex items-center gap-1.5 text-xs text-destructive" role="status">
+            <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-2.5" role="alert">
+              <p className="flex items-start gap-1.5 text-xs leading-5 text-destructive">
                 <WarningCircleIcon className="size-3 shrink-0" />
-                <span className="truncate">{projectServerStatus.message}</span>
+                <span className="break-words">{projectServerStatus.message}</span>
               </p>
-            </Hint>
+              <div className="mt-2 flex gap-2 pl-4.5">
+                <Button type="button" variant="outline" size="xs" onClick={onRestartServer}>
+                  <ArrowClockwiseIcon />
+                  Retry
+                </Button>
+                <Button type="button" variant="ghost" size="xs" onClick={onCopyServerDiagnostics}>
+                  <ClipboardTextIcon />
+                  {serverDiagnosticsCopied ? "Copied" : "Copy details"}
+                </Button>
+              </div>
+            </div>
           ) : null}
         </section>
       ) : null}
@@ -2599,6 +2611,7 @@ export function ProjectWorkspace({
   const [artboardHeight, setArtboardHeight] = useState(minimumArtboardHeight);
   const [codexStatus, setCodexStatus] = useState<CodexStatus>({ state: "idle", message: "" });
   const [projectServerStatus, setProjectServerStatus] = useState<ProjectServerStatus>({ state: "stopped", message: "" });
+  const [serverDiagnosticsCopied, setServerDiagnosticsCopied] = useState(false);
   const [zoom, setZoom] = useState(0.75);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [panMode, setPanMode] = useState(false);
@@ -2657,7 +2670,7 @@ export function ProjectWorkspace({
     const webview = document.createElement("webview") as FormiaWebviewElement;
     webview.className = "h-full w-full";
     webview.setAttribute("preload", window.formiaDesktop.inspectorPreloadUrl);
-    webview.setAttribute("partition", "persist:formia-canvas");
+    webview.setAttribute("partition", projectSessionPartition(projectPath));
 
     const syncTool = () => {
       webview.send("formia:set-tool", activeToolRef.current);
@@ -2744,7 +2757,7 @@ export function ProjectWorkspace({
       if (webviewRef.current === webview) webviewRef.current = null;
       webview.remove();
     };
-  }, [active, canvasKey, canvasUrl, isDesktop, updateArtboardHeight]);
+  }, [active, canvasKey, canvasUrl, isDesktop, projectPath, updateArtboardHeight]);
 
   useEffect(() => {
     const unsubscribe = window.formiaDesktop?.onCodexStatus((status) => {
@@ -3144,12 +3157,42 @@ export function ProjectWorkspace({
     setStagedPreviewChanges([]);
     setLayerTree([]);
     try {
+      setServerDiagnosticsCopied(false);
       await window.formiaDesktop.restartProjectServer();
     } catch (error) {
       setProjectServerStatus({
         state: "failed",
-        message: error instanceof Error ? error.message : "Could not restart the project server.",
+        message: desktopErrorMessage(error, "Could not restart the project server."),
       });
+    }
+  }
+
+  async function cancelCodexBuild() {
+    if (!window.formiaDesktop) return;
+    try {
+      await window.formiaDesktop.cancelCodexBuild();
+    } catch (error) {
+      setCodexStatus({
+        state: "failed",
+        message: desktopErrorMessage(error, "Could not cancel Build."),
+      });
+    }
+  }
+
+  async function copyServerDiagnostics() {
+    const details = [
+      "Formia project server error",
+      `Project: ${projectName}`,
+      projectPath ? `Path: ${projectPath}` : null,
+      `Details: ${projectServerStatus.message || "Unknown server error"}`,
+    ].filter(Boolean).join("\n");
+
+    try {
+      await navigator.clipboard.writeText(details);
+      setServerDiagnosticsCopied(true);
+      window.setTimeout(() => setServerDiagnosticsCopied(false), 2000);
+    } catch {
+      setServerDiagnosticsCopied(false);
     }
   }
 
@@ -3249,8 +3292,20 @@ export function ProjectWorkspace({
                           {projectServerStatus.state === "failed" ? "Project server could not start" : "Starting project server"}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {projectServerStatus.state === "failed" ? "Check the status above for details." : "Formia will load the project here when it is ready."}
+                          {projectServerStatus.state === "failed" ? projectServerStatus.message : "Formia will load the project here when it is ready."}
                         </p>
+                        {projectServerStatus.state === "failed" ? (
+                          <div className="mt-4 flex justify-center gap-2">
+                            <Button type="button" variant="outline" size="sm" onClick={() => void restartProjectServer()}>
+                              <ArrowClockwiseIcon />
+                              Retry
+                            </Button>
+                            <Button type="button" variant="ghost" size="sm" onClick={() => void copyServerDiagnostics()}>
+                              <ClipboardTextIcon />
+                              {serverDiagnosticsCopied ? "Copied" : "Copy details"}
+                            </Button>
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   )}
@@ -3269,32 +3324,6 @@ export function ProjectWorkspace({
               />
             ) : null}
 
-            <div className="absolute bottom-4 left-4 z-30 flex items-center gap-1 rounded-xl border border-border/70 bg-background/95 p-1 shadow-[0_2px_8px_rgba(0,0,0,0.04),0_4px_40px_rgba(0,0,0,0.03)] backdrop-blur">
-              <Hint content="Pan canvas (Space + drag)">
-                <Button type="button" variant={panMode ? "default" : "ghost"} size="icon-sm" onClick={() => setPanMode((enabled) => !enabled)} aria-label="Pan canvas (Space + drag)">
-                  <HandGrabbingIcon />
-                </Button>
-              </Hint>
-              <div className="mx-1 h-5 w-px bg-border" />
-              <Button type="button" variant="ghost" size="icon-sm" onClick={() => zoomCanvas(-0.1)} disabled={zoom <= minZoom} aria-label="Zoom out">
-                <MinusIcon />
-              </Button>
-              <span className="min-w-12 text-center text-xs font-medium tabular-nums text-muted-foreground" aria-label={`Canvas zoom ${Math.round(zoom * 100)} percent`}>
-                {Math.round(zoom * 100)}%
-              </span>
-              <Button type="button" variant="ghost" size="icon-sm" onClick={() => zoomCanvas(0.1)} disabled={zoom >= maxZoom} aria-label="Zoom in">
-                <PlusIcon />
-              </Button>
-              <div className="mx-1 h-5 w-px bg-border" />
-              <Hint content="Fit artboard to canvas">
-                <Button type="button" variant="ghost" size="icon-sm" onClick={fitCanvas} aria-label="Fit artboard to canvas">
-                  <ArrowsOutIcon />
-                </Button>
-              </Hint>
-            </div>
-            <div className="pointer-events-none absolute bottom-5 right-5 z-10 hidden text-[11px] text-muted-foreground sm:block">
-              Scroll to zoom · Pinch to zoom · Shift + scroll to pan · Space + drag
-                  </div>
                 </div>
               </div>
             </div>
@@ -3311,7 +3340,10 @@ export function ProjectWorkspace({
         canvasBackground={canvasBackground}
         canRefreshApp={Boolean(canvasUrl)}
         onBuild={() => void buildWithCodex()}
+        onCancelBuild={() => void cancelCodexBuild()}
         onRestartServer={() => void restartProjectServer()}
+        onCopyServerDiagnostics={() => void copyServerDiagnostics()}
+        serverDiagnosticsCopied={serverDiagnosticsCopied}
         onRefreshApp={refreshApp}
         onCanvasBackgroundChange={setCanvasBackground}
         onApplyStyle={(property, value) => sendCanvasMessage("formia:apply-style", { property, value })}

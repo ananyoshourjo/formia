@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+## [0.11.0] - 2026-09-10
+
+### Added
+
+- Added first-run guidance and Codex readiness feedback.
+- Added actionable project-server errors with retry and copyable diagnostics.
+- Added Build cancellation and a ten-minute safety timeout.
+- Added complete Windows product metadata, a release-resolution application icon, an assisted installer, and SHA-256 checksum generation.
+- Added project documentation, security guidance, and an MIT license.
+
+### Changed
+
+- Hardened desktop IPC validation, process shutdown, navigation, permissions, and project session isolation.
+- Removed unused production dependencies, starter assets, and obsolete UI components.
+
 ## [0.10.0] - 2026-09-09
 
 ### Added

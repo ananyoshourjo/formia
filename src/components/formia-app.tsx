@@ -4,15 +4,11 @@ import { useEffect, useState, type CSSProperties } from "react";
 
 import { ProjectSelector } from "@/components/project-selector";
 import { ProjectWorkspace } from "@/components/project-workspace";
+import type { CodexAvailability, Project } from "@/lib/desktop-contracts";
 import { toolCursor } from "@/lib/tool-cursors";
 
-type CodexAvailability = {
-  state: "checking" | "available" | "unavailable";
-  message: string;
-};
-
 export function FormiaApp() {
-  const [project, setProject] = useState<{ name: string; path: string | null; url?: string | null; error?: string } | null>(null);
+  const [project, setProject] = useState<Project | null>(null);
   const [codexAvailability, setCodexAvailability] = useState<CodexAvailability>({ state: "checking", message: "Checking for Codex" });
 
   useEffect(() => {
@@ -48,7 +44,7 @@ export function FormiaApp() {
 
   return (
     <div style={{ "--formia-cursor": toolCursor("interact") } as CSSProperties}>
-      {project ? null : <ProjectSelector onOpen={setProject} />}
+      {project ? null : <ProjectSelector codexAvailability={codexAvailability} onOpen={setProject} />}
       <ProjectWorkspace
         active={Boolean(project)}
         projectName={project?.name || "Project"}

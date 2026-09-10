@@ -3,9 +3,12 @@ const fs = require("node:fs");
 const http = require("node:http");
 const https = require("node:https");
 const net = require("node:net");
+const { fileURLToPath, pathToFileURL } = require("node:url");
 const { execFile, spawn } = require("node:child_process");
-const readline = require("node:readline");
-const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, session, shell } = require("electron");
+const { CodexAppServer } = require("./codex-app-server.cjs");
+const { normalizeCodexBuildRequest, normalizeProjectPathInput } = require("./ipc-contracts.cjs");
+const { isProcessRunning, stripAnsi, terminateProcessTree, waitForProcessExit } = require("./process-utils.cjs");
 
 const developmentUrl = process.env.ELECTRON_RENDERER_URL;
 let activeCodexJob = null;
@@ -46,6 +49,20 @@ function isExternalUrl(url) {
   return url.startsWith("http://") || url.startsWith("https://");
 }
 
+function isLoopbackUrl(value) {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:") && ["127.0.0.1", "localhost", "[::1]", "::1"].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function denySessionPermissions(targetSession) {
+  targetSession.setPermissionCheckHandler(() => false);
+  targetSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+}
+
 function sendCodexStatus(status) {
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) window.webContents.send("formia:codex-status", status);
@@ -76,10 +93,6 @@ function normalizeProjectUrl(value) {
   } catch {
     return null;
   }
-}
-
-function stripAnsi(value) {
-  return String(value).replace(/[\u001B\u009B][[\]()#;?]*(?:(?:(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*|[a-zA-Z\d]+(?:;[-a-zA-Z\d\/#&.:=?%@~_]*)*)?\u0007|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g, "");
 }
 
 function extractProjectUrl(output) {
@@ -203,45 +216,6 @@ function requestLocalUrl(url, timeout = 1200) {
       finish(false);
     });
   });
-}
-
-function isProcessRunning(processId) {
-  try {
-    process.kill(processId, 0);
-    return true;
-  } catch (error) {
-    return error?.code === "EPERM";
-  }
-}
-
-function terminateProcessTree(processId) {
-  return new Promise((resolve, reject) => {
-    if (!isProcessRunning(processId)) {
-      resolve();
-      return;
-    }
-
-    const killer = spawn("taskkill.exe", ["/PID", String(processId), "/T", "/F"], {
-      windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let output = "";
-    killer.stdout.on("data", (chunk) => { output += String(chunk); });
-    killer.stderr.on("data", (chunk) => { output += String(chunk); });
-    killer.once("error", reject);
-    killer.once("close", (code) => {
-      if (code === 0 || !isProcessRunning(processId)) resolve();
-      else reject(new Error(stripAnsi(output).trim() || `Could not stop process ${processId}.`));
-    });
-  });
-}
-
-async function waitForProcessExit(processId, timeout = 10000) {
-  const deadline = Date.now() + timeout;
-  while (isProcessRunning(processId)) {
-    if (Date.now() >= deadline) throw new Error(`Process ${processId} did not stop.`);
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
 }
 
 class ProjectDevServer {
@@ -496,117 +470,13 @@ function buildCodexPrompt(payload) {
   ].join("\n");
 }
 
-class CodexAppServer {
-  constructor({ cwd, onNotification, onOutput }) {
-    this.cwd = cwd;
-    this.onNotification = onNotification;
-    this.onOutput = onOutput;
-    this.process = null;
-    this.pending = new Map();
-    this.nextRequestId = 1;
-    this.closedError = null;
-  }
-
-  start() {
-    return new Promise((resolve, reject) => {
-      const command = process.platform === "win32" ? "codex.cmd" : "codex";
-      this.process = spawn(command, ["-c", "service_tier=fast", "app-server", "--listen", "stdio://"], {
-        cwd: this.cwd,
-        stdio: ["pipe", "pipe", "pipe"],
-        windowsHide: true,
-        shell: process.platform === "win32",
-      });
-
-      const output = readline.createInterface({ input: this.process.stdout });
-      output.on("line", (line) => this.handleLine(line));
-      this.process.stderr.on("data", (chunk) => this.onOutput?.(String(chunk).trim()));
-      this.process.once("error", (error) => {
-        this.closedError = error;
-        reject(error);
-        this.rejectPending(error);
-      });
-      this.process.once("close", (code, signal) => {
-        const error = new Error(`Codex App Server exited${code == null ? "" : ` with code ${code}`}${signal ? ` (${signal})` : ""}`);
-        this.closedError = error;
-        this.rejectPending(error);
-      });
-
-      this.initialize().then(resolve, reject);
-    });
-  }
-
-  handleLine(line) {
-    if (!line.trim()) return;
-
-    let message;
-    try {
-      message = JSON.parse(line);
-    } catch {
-      this.onOutput?.(line);
-      return;
-    }
-
-    if (message.id != null && this.pending.has(message.id)) {
-      const pending = this.pending.get(message.id);
-      this.pending.delete(message.id);
-      if (message.error) {
-        pending.reject(new Error(message.error.message || "Codex request failed"));
-      } else {
-        pending.resolve(message.result);
-      }
-      return;
-    }
-
-    if (message.method) this.onNotification?.(message);
-  }
-
-  initialize() {
-    return this.request("initialize", {
-      clientInfo: {
-        name: "formia",
-        title: "Formia",
-        version: app.getVersion(),
-      },
-    }).then(() => {
-      this.notify("initialized", {});
-    });
-  }
-
-  request(method, params) {
-    if (!this.process || this.process.exitCode != null) {
-      return Promise.reject(this.closedError || new Error("Codex App Server is not running"));
-    }
-
-    const id = this.nextRequestId++;
-    return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.process.stdin.write(`${JSON.stringify({ method, id, params })}\n`);
-    });
-  }
-
-  notify(method, params) {
-    if (!this.process || this.process.exitCode != null) return;
-    this.process.stdin.write(`${JSON.stringify({ method, params })}\n`);
-  }
-
-  rejectPending(error) {
-    for (const { reject } of this.pending.values()) reject(error);
-    this.pending.clear();
-  }
-
-  stop() {
-    if (!this.process || this.process.killed) return;
-    this.process.kill();
-    this.process = null;
-  }
-}
-
 async function detectCodexAvailability() {
   sendCodexAvailability({ state: "checking", message: "Checking for Codex" });
 
   let output = "";
   const server = new CodexAppServer({
     cwd: app.getPath("home"),
+    version: app.getVersion(),
     onOutput: (chunk) => {
       output = `${output}\n${chunk}`.slice(-4000);
     },
@@ -633,12 +503,13 @@ async function detectCodexAvailability() {
     sendCodexAvailability({ state: "unavailable", message });
   } finally {
     clearTimeout(timeout);
-    server.stop();
+    await server.stop();
   }
 }
 
 async function runCodexBuild(payload, jobId) {
-  const projectPath = typeof payload?.projectPath === "string" ? path.resolve(payload.projectPath) : "";
+  const request = normalizeCodexBuildRequest(payload);
+  const projectPath = path.resolve(request.projectPath);
   if (!projectPath || !fs.existsSync(projectPath) || !fs.statSync(projectPath).isDirectory()) {
     throw new Error("The selected project folder is unavailable.");
   }
@@ -653,6 +524,7 @@ async function runCodexBuild(payload, jobId) {
 
   const server = new CodexAppServer({
     cwd: projectPath,
+    version: app.getVersion(),
     onOutput: (output) => {
       if (output) sendCodexStatus({ jobId, state: "working", message: output.slice(-240) });
     },
@@ -666,7 +538,11 @@ async function runCodexBuild(payload, jobId) {
     },
   });
 
-  activeCodexJob = { jobId, server };
+  let cancelBuild;
+  const cancelled = new Promise((_, reject) => {
+    cancelBuild = () => reject(new Error("Build cancelled."));
+  });
+  activeCodexJob = { jobId, server, cancel: cancelBuild };
   sendCodexStatus({ jobId, state: "working", message: "Starting Codex" });
 
   try {
@@ -681,7 +557,19 @@ async function runCodexBuild(payload, jobId) {
     const threadId = threadResult?.thread?.id;
     if (!threadId) throw new Error("Codex did not return a thread.");
 
-    const prompt = buildCodexPrompt({ ...payload, projectPath });
+    const completion = new Promise((resolve, reject) => {
+      const previousNotification = server.onNotification;
+      server.onNotification = (message) => {
+        previousNotification?.(message);
+        if (message.method === "turn/completed") {
+          const status = message.params?.turn?.status || message.params?.status;
+          if (status === "completed") resolve();
+          else reject(new Error(`Codex turn ${status || "failed"}.`));
+        }
+        if (message.method === "error") reject(new Error(message.params?.error?.message || "Codex reported an error."));
+      };
+    });
+    const prompt = buildCodexPrompt({ ...request, projectPath });
     await server.request("turn/start", {
       threadId,
       cwd: projectPath,
@@ -695,37 +583,30 @@ async function runCodexBuild(payload, jobId) {
       effort: "medium",
     });
 
-    await new Promise((resolve, reject) => {
-      const previousNotification = server.onNotification;
-      server.onNotification = (message) => {
-        previousNotification?.(message);
-        if (message.method === "turn/completed") {
-          const status = message.params?.turn?.status || message.params?.status;
-          if (status === "completed") resolve();
-          else reject(new Error(`Codex turn ${status || "failed"}.`));
-        }
-        if (message.method === "error") reject(new Error(message.params?.error?.message || "Codex reported an error."));
-      };
-    });
+    let buildTimeout;
+    await Promise.race([
+      completion,
+      cancelled,
+      new Promise((_, reject) => {
+        buildTimeout = setTimeout(() => reject(new Error("Build did not finish within 10 minutes.")), 10 * 60 * 1000);
+      }),
+    ]).finally(() => clearTimeout(buildTimeout));
 
     sendCodexStatus({ jobId, state: "applied", message: "Changes applied; refreshing preview" });
     return { jobId };
   } finally {
-    server.stop();
+    await server.stop();
     activeCodexJob = null;
   }
 }
 
 function openProjectPath(projectPath) {
-  if (typeof projectPath !== "string" || !projectPath.trim()) {
-    throw new Error("A project folder is required.");
-  }
-
-  const resolvedProjectPath = path.resolve(projectPath);
+  const resolvedProjectPath = path.resolve(normalizeProjectPathInput(projectPath));
   if (!fs.existsSync(resolvedProjectPath) || !fs.statSync(resolvedProjectPath).isDirectory()) {
     throw new Error("The selected project folder is unavailable.");
   }
 
+  readProjectMetadata(resolvedProjectPath);
   selectedProjectPath = resolvedProjectPath;
   const project = {
     name: path.basename(resolvedProjectPath) || "Untitled project",
@@ -804,6 +685,13 @@ ipcMain.handle("formia:codex-build", (_event, payload) => {
   return { jobId };
 });
 
+ipcMain.handle("formia:cancel-codex-build", async () => {
+  const job = activeCodexJob;
+  if (!job) return;
+  job.cancel();
+  await job.server.stop();
+});
+
 function createWindow() {
   const window = new BrowserWindow({
     title: "Formia",
@@ -817,9 +705,10 @@ function createWindow() {
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
+      additionalArguments: [`--formia-inspector-preload=${pathToFileURL(path.join(__dirname, "inspector-preload.cjs")).href}`],
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       webSecurity: true,
       webviewTag: true,
     },
@@ -831,6 +720,22 @@ function createWindow() {
     if (isExternalUrl(url)) void shell.openExternal(url);
     return { action: "deny" };
   });
+  window.webContents.on("will-navigate", (event, url) => {
+    let allowed = false;
+    try {
+      if (developmentUrl) {
+        allowed = new URL(url).origin === new URL(developmentUrl).origin;
+      } else {
+        const rendererRoot = path.join(app.getAppPath(), "out");
+        const candidatePath = fileURLToPath(url);
+        const relativePath = path.relative(rendererRoot, candidatePath);
+        allowed = relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+      }
+    } catch {
+      allowed = false;
+    }
+    if (!allowed) event.preventDefault();
+  });
 
   if (developmentUrl) {
     void window.loadURL(developmentUrl);
@@ -839,7 +744,20 @@ function createWindow() {
   }
 }
 
+app.on("session-created", denySessionPermissions);
+app.on("web-contents-created", (_event, contents) => {
+  if (contents.getType() !== "webview") return;
+  contents.setWindowOpenHandler(({ url }) => {
+    if (isExternalUrl(url)) void shell.openExternal(url);
+    return { action: "deny" };
+  });
+  contents.on("will-navigate", (event, url) => {
+    if (!isLoopbackUrl(url)) event.preventDefault();
+  });
+});
+
 app.whenReady().then(() => {
+  denySessionPermissions(session.defaultSession);
   void getInstalledFonts();
   createWindow();
   void detectCodexAvailability();
@@ -853,7 +771,13 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => {
-  void activeProjectServer?.stop().catch(() => {});
-  activeCodexJob?.server.stop();
+let finishingQuit = false;
+app.on("before-quit", (event) => {
+  if (finishingQuit) return;
+  event.preventDefault();
+  finishingQuit = true;
+  void Promise.allSettled([
+    activeProjectServer?.stop(),
+    activeCodexJob?.server.stop(),
+  ]).finally(() => app.quit());
 });
