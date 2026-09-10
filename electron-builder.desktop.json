@@ -1,12 +1,14 @@
 {
   "appId": "com.formia.app",
   "productName": "Formia",
+  "copyright": "Copyright © 2026 Ananyo Shourjo",
   "asar": true,
   "electronVersion": "44.0.0",
   "electronDist": "../node_modules/electron/dist",
   "npmRebuild": false,
   "directories": {
-    "output": "../release"
+    "output": "../release",
+    "buildResources": "build"
   },
   "files": [
     "electron/**/*",
@@ -15,7 +17,17 @@
   ],
   "win": {
     "target": "nsis",
-    "signAndEditExecutable": false,
+    "icon": "build/icon.ico",
+    "executableName": "Formia",
+    "signAndEditExecutable": true,
+    "signExecutable": false,
     "artifactName": "Formia-${version}-Setup.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Formia"
   }
 }

@@ -1,6 +1,9 @@
 {
   "name": "formia-app",
-  "version": "0.10.0",
+  "version": "0.11.0",
+  "description": "A desktop visual editor for making focused changes to local React projects with Codex.",
+  "author": "Ananyo Shourjo",
+  "license": "MIT",
   "private": true,
   "main": "electron/main.cjs",
   "scripts": {
@@ -8,7 +11,7 @@
     "dev:web": "next dev",
     "dev:electron": "wait-on http://localhost:3000 && cross-env ELECTRON_RENDERER_URL=http://localhost:3000 electron .",
     "build": "next build",
-    "build:desktop": "cross-env FORMIA_ELECTRON_BUILD=1 next build && node scripts/stage-desktop.cjs && electron-builder --projectDir .desktop-build --config ../electron-builder.desktop.json",
+    "build:desktop": "cross-env FORMIA_ELECTRON_BUILD=1 next build && node scripts/stage-desktop.cjs && electron-builder --projectDir .desktop-build --config ../electron-builder.desktop.json && node scripts/write-release-checksum.cjs",
     "package:desktop": "cross-env FORMIA_ELECTRON_BUILD=1 next build && node scripts/stage-desktop.cjs && electron-builder --dir --projectDir .desktop-build --config ../electron-builder.desktop.json",
     "start": "next start",
     "lint": "eslint"
@@ -17,14 +20,12 @@
     "@hugeicons/core-free-icons": "^4.3.0",
     "@hugeicons/react": "^1.1.10",
     "@mingcute/react": "^3.0.2",
-    "@openai/apps-sdk-ui": "^0.2.2",
     "@phosphor-icons/react": "^2.1.10",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "next": "16.3.3",
     "radix-ui": "^1.6.7",
     "react": "19.2.8",
-    "react-colorful": "^5.8.1",
     "react-dom": "19.2.8",
     "shadcn": "^4.19.0",
     "tailwind-merge": "^3.6.0",
@@ -41,6 +42,7 @@
     "electron-builder": "^26.15.3",
     "eslint": "^9.39.5",
     "eslint-config-next": "16.3.3",
+    "sharp": "^0.35.4",
     "tailwindcss": "^4",
     "typescript": "^6.0.3",
     "wait-on": "^9.1.0"

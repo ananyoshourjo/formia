@@ -1,36 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Formia
 
-## Getting Started
+Formia is a Windows desktop visual editor for local React projects. Open a project, select an element, make a focused visual change, and use **Build** to ask Codex to implement that change in the real source code.
 
-First, run the development server:
+The connected project remains the source of truth. Formia does not convert it into a proprietary design file or replace its framework, routing, state, dependencies, or component system.
 
-```bash
+## What Formia supports
+
+- Local Next.js and Vite projects with a `dev`, `start`, or `serve` script.
+- npm, pnpm, yarn, and Bun package managers.
+- Live interaction, element selection, inline text editing, and a rendered Layers tree.
+- Focused controls for layout, spacing, typography, color, borders, and simple structural edits.
+- Temporary visual previews followed by Codex-backed source implementation.
+
+Formia is intentionally focused on small visual changes to existing interfaces. Responsive breakpoint editing, broad component generation, deployment, and collaboration are planned after v1.
+
+## Requirements
+
+- A Windows desktop.
+- A local React project whose dependencies are already installed.
+- The Codex CLI installed, available on `PATH`, and signed in for Build.
+
+Formia checks Codex availability when it starts. Projects can still be opened and edited visually when Codex is unavailable, but Build remains disabled until Codex is ready.
+
+## Using Formia
+
+1. Open Formia and choose **Open project**.
+2. Select a local Next.js or Vite project.
+3. Wait for its development server to appear in the canvas.
+4. Use **Interact**, **Select**, or **Text** to work with the running application.
+5. Make a visual change in Properties.
+6. Press **Build** to have Codex apply the requested change to the project.
+
+Use **Build → Reset design** to discard temporary preview changes. Server failures include retry and copyable diagnostics.
+
+## Development
+
+```powershell
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Useful checks and packaging commands:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```powershell
+npm run lint
+npm run build
+npm run package:desktop
+npm run build:desktop
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Desktop output is written to `release\win-unpacked\Formia.exe`; the installer is written to `release\Formia-<version>-Setup.exe`.
 
-## Learn More
+See [project.md](./project.md) for product scope and [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the implementation map.
+Stable publication requirements are documented in [docs/RELEASE.md](./docs/RELEASE.md), and notable changes are tracked in [CHANGELOG.md](./CHANGELOG.md).
 
-To learn more about Next.js, take a look at the following resources:
+## Security boundary
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Formia starts the selected project's development server and gives Codex workspace-write access to that selected project when the user presses Build. Do not open an untrusted project. See [SECURITY.md](./SECURITY.md) for the full boundary and reporting guidance.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## License
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Formia is available under the [MIT License](./LICENSE).

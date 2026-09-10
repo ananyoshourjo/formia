@@ -1,8 +1,8 @@
-const path = require("node:path");
-const { pathToFileURL } = require("node:url");
 const { contextBridge, ipcRenderer } = require("electron");
 
-const inspectorPreloadUrl = pathToFileURL(path.join(__dirname, "inspector-preload.cjs")).href;
+const inspectorPreloadArgument = process.argv.find((argument) => argument.startsWith("--formia-inspector-preload="));
+if (!inspectorPreloadArgument) throw new Error("Formia inspector preload path is unavailable.");
+const inspectorPreloadUrl = inspectorPreloadArgument.slice("--formia-inspector-preload=".length);
 
 contextBridge.exposeInMainWorld("formiaDesktop", {
   isDesktop: true,
@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("formiaDesktop", {
   restartProjectServer: () => ipcRenderer.invoke("formia:restart-project-server"),
   stopProjectServer: () => ipcRenderer.invoke("formia:stop-project-server"),
   buildWithCodex: (payload) => ipcRenderer.invoke("formia:codex-build", payload),
+  cancelCodexBuild: () => ipcRenderer.invoke("formia:cancel-codex-build"),
   getCodexAvailability: () => ipcRenderer.invoke("formia:get-codex-availability"),
   getInstalledFonts: () => ipcRenderer.invoke("formia:get-installed-fonts"),
   minimizeWindow: () => ipcRenderer.invoke("formia:window-minimize"),

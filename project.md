@@ -1,122 +1,47 @@
-# Formia
+# Formia product scope
 
-## Product direction
+## Product promise
 
-Formia is a desktop-first visual development environment for local React projects. Instead of replacing the project's runtime or converting it into a separate design document, Formia will load the real application, let the user select rendered React elements, show how they relate to the source, and eventually apply visual changes directly to the project's code.
+Formia is a designer-first visual prompt surface for existing React applications:
 
-The core principle is that the connected project remains the source of truth. Formia should preserve its framework, dependencies, application context, routing, state, and styles.
+> Open the real local project, select something, change it visually, and press Build to have Codex implement the change.
 
-## What exists today
+The connected project remains the source of truth. Source details, prompt construction, and implementation work stay behind the interface.
 
-The current prototype is a minimal Next.js and shadcn/ui interface packaged as an Electron desktop application.
+## Version 1 scope
 
-- The home screen contains a **Select project** action and a persistent list of up to five recently opened project folders.
-- Selecting a folder opens a dedicated project workspace and displays its folder name.
-- The workspace has a full-width application canvas, a back button, a development-server URL field, reload and external-open actions, and a full-height properties sidebar fixed to the right.
-- Selecting a project starts its detected local `dev`, `start`, or `serve` script, chooses a free local port, and loads the discovered URL in the canvas.
-- In a normal browser, the application is displayed in an iframe.
-- In the Electron app, the application is displayed in a webview with an inspector preload script.
-- Inspect mode can highlight and select a rendered DOM element in the Electron canvas.
-- The Layers panel displays a collapsible tree of visible rendered elements, with available React component names, and can select or highlight elements in the canvas.
-- Layers can be dragged in the panel or on the canvas to reorder siblings, reparent into another element, or move back to the page root; these changes remain temporary until Build.
-- The properties sidebar displays the selected element's identity, dimensions, computed styles, HTML attributes, and—when React runtime information is discoverable—the component name and a compact view of its props.
-- Selected properties can be edited as temporary preview overrides. The current preview editor supports class names, text content, and a constrained set of inline CSS properties, with per-property and full-preview reset actions.
-- Preview overrides are tracked as staged changes without modifying the project source. The **Build** action sends the selected element, runtime context, and staged changes to Codex in the background.
-- The Electron main process starts a local Codex app-server for the selected project, allows it to make source-level changes inside that project, reports working/applied/failed status, and refreshes the preview after a successful turn.
-- The background Build task currently uses GPT-5.6 Luna with medium reasoning as its default model configuration.
-- The application preview sits on an infinite-style canvas with a 1440×900 artboard. The canvas supports panning, mouse-wheel zoom, trackpad scrolling, pinch zooming, and zoom from 10% through 400% with pointer-centered smoothing.
-- The earlier component-folder scanner and component inventory have been removed because Formia is now centered on the whole running application rather than isolated component discovery.
+- Windows desktop application.
+- Local Next.js and Vite projects.
+- npm, pnpm, yarn, and Bun development commands.
+- Interact, Select, and Text tools.
+- Runtime Layers tree with selection and focused structural editing.
+- Layout, spacing, typography, color, border, and content controls.
+- Temporary visual preview and reset.
+- Codex-backed Build for focused visual changes.
+- Clear first-run, Codex availability, project validation, and server recovery states.
 
-## Current limitations
+Formia v1 is deliberately not a general site builder, IDE, design document, deployment platform, or collaboration suite.
 
-- Recent project entries are stored locally in the Formia renderer. They retain the folder path but are not synchronized across machines or users.
-- Server startup supports common npm, pnpm, yarn, and bun projects with Next.js and Vite-specific host and port arguments; unusual project scripts may still require the manual URL field.
-- Browser mode can render the app but cannot use the Electron-only element inspector.
-- The Layers panel is currently desktop-only and represents the runtime DOM rather than a stable source-level component tree; runtime layer IDs are recreated when the preview reloads.
-- Structural moves are intentionally permissive and may change the rendered layout; Reset restores the preview, while Build asks Codex to apply the corresponding JSX reorder or reparenting.
-- Preview overrides are runtime-only and disappear when the canvas is reloaded, the project is reopened, or the preview is reset. They become source changes only after the user invokes Build and Codex completes successfully.
-- The background Codex bridge requires the local `codex` CLI to be installed and authenticated. Its current source edit is guided by runtime evidence and the staged diff; reliable AST-level source mapping and a user-facing source diff are not implemented yet.
-- Codex is currently started with workspace-write access scoped to the selected project and no approval prompts. Formia does not yet create a dedicated backup, commit, or rollback point for each generated change.
-- React component detection relies on private runtime Fiber fields. It is useful for a prototype but is not a stable public React API and may vary by React version, build mode, or renderer.
-- Source locations are not consistently available, especially in production builds or without suitable source maps.
-- The inspector does not yet map a selection reliably to an editable JSX node or CSS declaration; the Codex prompt provides context and asks Codex to choose the cleanest source implementation.
-- Cross-origin behavior, authentication, nested iframes, portals, shadow DOM, canvas-rendered interfaces, and server-rendered boundaries may limit inspection.
-- The desktop package has a focused startup and canvas interaction check, but broader project coverage and failure recovery still need testing.
+## Post-v1 roadmap
 
-## What we plan to build
+- Responsive viewport and breakpoint-aware editing.
+- Browser-based interactive demos using bundled example applications. Browser demos will not edit local files or expose Build; they will point users to the desktop download.
+- Additional visual controls and direct manipulation where they simplify common refinements.
+- Broader framework and project coverage based on real usage.
 
-### 1. Real project attachment
+## Known boundaries
 
-- Use Electron's native folder picker and retain the absolute project path.
-- Validate the selected folder and read its package metadata without changing project files.
-- Save and reopen recent projects.
-- Detect likely development commands and ports, start and stop the project server, and save recent project folders for one-click reopening.
+- Build requires the Codex CLI to be installed and signed in.
+- Runtime inspection works best with ordinary DOM-based React interfaces. Cross-origin frames, portals, shadow DOM, canvas-rendered interfaces, and unusual renderers can limit inspection.
+- React component names and source hints depend on runtime information exposed by the connected project.
+- Preview changes exist in the running page until they are reset, refreshed, or sent to Build.
+- Structural previews directly rearrange rendered DOM and are intended as visual instructions for Codex.
+- Responsive breakpoint editing is not part of v1.
 
-### 2. Reliable application canvas
+## Design principles
 
-- Connect a project to its running development server.
-- Add clear loading, disconnected, and runtime-error states.
-- Support common React environments such as Next.js and Vite without requiring permanent instrumentation in the target project.
-- Verify navigation, reload, responsive viewport sizing, and development-server reconnection inside the desktop canvas.
-
-### 3. Selection and inspection
-
-- Make hover and selection stable across navigation and rerenders.
-- Build a dependable bridge from DOM elements to React component boundaries.
-- Show component hierarchy, props, DOM attributes, layout, typography, spacing, colors, and relevant source locations.
-- Clearly distinguish values inherited from parents, computed by CSS, supplied as props, or produced at runtime.
-
-### 4. Source mapping
-
-- Resolve a selected runtime element to the correct local JSX/TSX and style source.
-- Parse source code with an AST rather than editing strings.
-- Handle composed shadcn components, Tailwind classes, CSS modules, inline styles, and repeated component instances.
-- Detect ambiguous mappings and refuse unsafe changes instead of guessing.
-
-### 5. Visual editing
-
-- Continue expanding constrained, high-confidence preview edits such as text, spacing, dimensions, colors, typography, and simple props.
-- Convert staged preview changes into a precise source diff before writing.
-- Add stale-file checks, undo, recoverable backups, and an explicit review step around Codex-generated changes.
-- Let the project's existing hot reload display the result immediately and verify that the intended rendered change survived the source edit.
-
-### 6. IDE-grade workflow
-
-- Add project files and component hierarchy only when they support the visual workflow.
-- Surface build and runtime errors in context.
-- Add responsive previews, selection breadcrumbs, history, and source opening.
-- Keep the interface utilitarian and avoid unrelated design, document, or collaboration features until the visual code-editing loop is dependable.
-
-## Current milestone
-
-The current prototype supports a preview-first edit loop:
-
-1. Attach a real local project path.
-2. Connect to its running development server.
-3. Render the full application in the Electron canvas.
-4. Select an element reliably.
-5. Show its React component, props, DOM and computed properties, and best available source location.
-6. Apply temporary visual changes without touching source files.
-7. Send staged changes to a background Codex task and refresh the preview after source edits are applied.
-
-The next milestone is a guarded source-edit loop with reliable selection-to-source mapping, a reviewable diff, and rollback protection.
-
-## Current stack
-
-- Next.js 16
-- React 19
-- TypeScript
-- Tailwind CSS 4
-- shadcn/ui
-- Electron
-- electron-builder
-
-## Development commands
-
-```bash
-npm run dev
-npm run lint
-npm run build
-npm run package:desktop
-npm run build:desktop
-```
+1. Keep the interface visual and compact.
+2. Do not ask designers to manage source diffs or developer workflows.
+3. Prefer focused, understandable controls over feature breadth.
+4. Keep the connected project and its conventions intact.
+5. Make setup and failure states clear without turning Formia into an IDE.
