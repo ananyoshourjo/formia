@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { FormiaErrorBoundary } from "@/components/formia-error-boundary";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
@@ -14,7 +15,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className="h-full antialiased"
     >
       <body className="min-h-full flex flex-col">
-        <TooltipProvider>{children}</TooltipProvider>
+        <TooltipProvider>
+          <FormiaErrorBoundary>{children}</FormiaErrorBoundary>
+        </TooltipProvider>
       </body>
     </html>
   );

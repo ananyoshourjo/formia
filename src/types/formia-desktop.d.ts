@@ -33,11 +33,11 @@ interface FormiaWebviewElement extends HTMLElement {
   goBack(): void;
   goForward(): void;
   reload(): void;
-  send(channel: string, ...args: unknown[]): void;
+  send(channel: import("@/lib/desktop-contracts").CanvasMessageChannel, ...args: unknown[]): void;
 }
 
 interface FormiaWebviewEvent extends Event {
-  channel: string;
+  channel: import("@/lib/desktop-contracts").CanvasEventChannel;
   args: unknown[];
 }
 

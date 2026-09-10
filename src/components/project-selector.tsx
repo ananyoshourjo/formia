@@ -181,6 +181,7 @@ export function ProjectSelector({ codexAvailability, onOpen }: { codexAvailabili
             </div>
           ) : (
             <div className="mt-4 rounded-xl border border-dashed border-border px-4 py-5">
+              <p className="text-sm text-muted-foreground">No recent project to show</p>
               <p className="text-sm font-medium">Visually edit your React site</p>
               <p className="mt-1 max-w-md text-sm leading-6 text-muted-foreground">Open a local Next.js or Vite project, make focused changes on the real running page, then use Build to turn them into code.</p>
               <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
