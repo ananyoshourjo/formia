@@ -2193,20 +2193,33 @@ function LayerPanel({
   onMoveLayer: (payload: { sourceSelectionId: string; targetParentId: string | null; beforeSelectionId: string | null }) => void;
 }) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const [collapsedBySelection, setCollapsedBySelection] = useState<{ selectionId: string | null; ids: Set<string> }>(() => ({ selectionId: null, ids: new Set() }));
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<LayerDropTarget | null>(null);
-  const selectedAncestorIds = selection?.selectionId ? findLayerAncestorIds(layerTree, selection.selectionId) : null;
+  const selectedId = selection?.selectionId || null;
+  const selectedAncestorIds = selectedId ? findLayerAncestorIds(layerTree, selectedId) : null;
+  const selectedCollapsedIds = collapsedBySelection.selectionId === selectedId ? collapsedBySelection.ids : new Set<string>();
   const visibleExpandedIds = new Set(expandedIds);
-  for (const selectionId of selectedAncestorIds || []) visibleExpandedIds.add(selectionId);
+  for (const selectionId of selectedAncestorIds || []) {
+    if (!selectedCollapsedIds.has(selectionId)) visibleExpandedIds.add(selectionId);
+  }
+  for (const selectionId of selectedCollapsedIds) visibleExpandedIds.delete(selectionId);
   const collapsedIds = collectExpandableLayerIds(layerTree);
   for (const selectionId of visibleExpandedIds) collapsedIds.delete(selectionId);
 
   function toggleLayer(selectionId: string) {
-    setExpandedIds((current) => {
-      if (selectedAncestorIds?.has(selectionId)) {
-        return current;
-      }
+    const isSelectedAncestor = selectedAncestorIds?.has(selectionId) || false;
+    if (isSelectedAncestor) {
+      setCollapsedBySelection((current) => {
+        const next = new Set(current.selectionId === selectedId ? current.ids : []);
+        if (visibleExpandedIds.has(selectionId)) next.add(selectionId);
+        else next.delete(selectionId);
+        return { selectionId: selectedId, ids: next };
+      });
+      return;
+    }
 
+    setExpandedIds((current) => {
       const next = new Set(current);
       if (next.has(selectionId)) next.delete(selectionId);
       else next.add(selectionId);
@@ -2216,10 +2229,12 @@ function LayerPanel({
 
   function expandAllLayers() {
     setExpandedIds(collectExpandableLayerIds(layerTree));
+    setCollapsedBySelection({ selectionId: selectedId, ids: new Set() });
   }
 
   function collapseAllLayers() {
-    setExpandedIds(selectedAncestorIds || new Set());
+    setExpandedIds(new Set());
+    setCollapsedBySelection({ selectionId: selectedId, ids: new Set(selectedAncestorIds || []) });
   }
 
   function getDropTarget(event: ReactDragEvent<HTMLDivElement>, node: LayerNode, parentId: string | null, nextSiblingId: string | null): LayerDropTarget | null {
