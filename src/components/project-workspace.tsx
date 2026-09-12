@@ -1,10 +1,11 @@
 "use client";
 
 import { createElement, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { AlignBottomIcon, AlignCenterHorizontalSimpleIcon, AlignCenterVerticalIcon, AlignCenterVerticalSimpleIcon, AngleIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowLineRightIcon, ArrowLineUpIcon, ArrowRightIcon, ArrowsInLineVerticalIcon, ArrowsOutLineHorizontalIcon, ArrowsOutLineVerticalIcon, BoundingBoxIcon, BrowserIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CircleIcon, CircleNotchIcon, ClipboardTextIcon, ColumnsIcon, CompassIcon, CornersOutIcon, CrosshairSimpleIcon, CursorIcon, CursorTextIcon, DotIcon, DotsNineIcon, EraserIcon, EyeIcon, EyeSlashIcon, FlipHorizontalIcon, FlipVerticalIcon, FrameCornersIcon, GearSixIcon, GitCommitIcon, GridFourIcon, ImageIcon, LinkSimpleIcon, LinkSimpleHorizontalIcon, ListBulletsIcon, ListDashesIcon, ListNumbersIcon, MinusIcon, MouseScrollIcon, NavigationArrowIcon, ParagraphIcon, PathIcon, PlusIcon, PushPinIcon, RectangleIcon, RowsIcon, ShapesIcon, SidebarIcon, SidebarSimpleIcon, SplitHorizontalIcon, SplitVerticalIcon, SquareIcon, StackIcon, StackSimpleIcon, TableIcon, TerminalWindowIcon, TextHIcon, TextboxIcon, VideoCameraIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { AlignBottomIcon, AlignCenterHorizontalSimpleIcon, AlignCenterVerticalIcon, AlignCenterVerticalSimpleIcon, AngleIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowLineRightIcon, ArrowLineUpIcon, ArrowRightIcon, ArrowsInLineVerticalIcon, ArrowsOutLineHorizontalIcon, ArrowsOutLineVerticalIcon, BoundingBoxIcon, BrowserIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CircleIcon, CircleNotchIcon, ClipboardTextIcon, ColumnsIcon, CompassIcon, CornersOutIcon, CrosshairSimpleIcon, CursorIcon, CursorTextIcon, DotIcon, DotsNineIcon, DownloadSimpleIcon, EraserIcon, EyeIcon, EyeSlashIcon, FlipHorizontalIcon, FlipVerticalIcon, FrameCornersIcon, GearSixIcon, GitCommitIcon, GridFourIcon, ImageIcon, LinkSimpleIcon, LinkSimpleHorizontalIcon, ListBulletsIcon, ListDashesIcon, ListNumbersIcon, MinusIcon, MouseScrollIcon, NavigationArrowIcon, ParagraphIcon, PathIcon, PlusIcon, PushPinIcon, RectangleIcon, RowsIcon, ShapesIcon, SidebarIcon, SidebarSimpleIcon, SplitHorizontalIcon, SplitVerticalIcon, SquareIcon, StackIcon, StackSimpleIcon, TableIcon, TerminalWindowIcon, TextHIcon, TextboxIcon, VideoCameraIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
 import { AlignBottomFilled, AlignHorizontalCenterFilled, AlignLeft2Filled, AlignRight2Filled, AlignTopFilled } from "@mingcute/react/core-filled";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
+import { windowsInstallerUrl } from "@/lib/release";
 import { AArrowUpIcon, CaseLowerIcon, CaseSensitiveIcon, CaseUpperIcon, FitToScreenIcon, MinusSignIcon, ParagraphSpacingIcon, TextAlignCenterIcon, TextAlignJustifyCenterIcon, TextAlignLeft01Icon, TextAlignLeftIcon, TextAlignRight01Icon, TextAlignRightIcon, TextStrikethroughIcon, TextUnderlineIcon, TextVariableFrontIcon, XLineTopIcon } from "@hugeicons/core-free-icons";
 
 import { Button } from "@/components/ui/button";
@@ -486,7 +487,7 @@ function FontPickerField({ selection, onApplyStyle, onResetStyle }: { selection:
           </Button>
         </Hint>
       </div>
-      <DropdownMenuContent align="start" sideOffset={4} className="max-h-72 min-w-[16rem] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
+      <DropdownMenuContent align="start" sideOffset={4} className="scrollbar-hidden max-h-72 min-w-[16rem] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
         <DropdownMenuLabel className="px-2 py-1 text-[11px]">Installed fonts</DropdownMenuLabel>
         <DropdownMenuRadioGroup value={availableFonts.includes(currentFamily) ? currentFamily : ""} onValueChange={(font) => onApplyStyle("fontFamily", replacePrimaryFontFamily(currentValue, font))}>
           {availableFonts.map((font) => (
@@ -2174,7 +2175,6 @@ function LayerRow({
 
 function LayerPanel({
   className,
-  isDesktop,
   canvasUrl,
   layerTree,
   selection,
@@ -2184,7 +2184,6 @@ function LayerPanel({
   onMoveLayer,
 }: {
   className?: string;
-  isDesktop: boolean;
   canvasUrl: string | null;
   layerTree: LayerNode[];
   selection: SelectedElement | null;
@@ -2281,21 +2280,21 @@ function LayerPanel({
 
   return (
     <aside className={`flex h-full w-64 shrink-0 flex-col border-r border-border bg-white text-foreground ${className || ""}`}>
-      <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
+      <div className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
         <div className="flex items-center gap-2 px-1.5 pb-2">
           <h2 className={`${inspectorHeadingClass} min-w-0 flex-1`}>Layers</h2>
           <Hint content="Expand all layers">
-            <Button type="button" variant="ghost" size="icon-xs" className="size-4 shrink-0 rounded p-0 text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/10" onClick={expandAllLayers} disabled={!isDesktop || !canvasUrl || layerTree.length === 0} aria-label="Expand all layers">
+            <Button type="button" variant="ghost" size="icon-xs" className="size-4 shrink-0 rounded p-0 text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/10" onClick={expandAllLayers} disabled={!canvasUrl || layerTree.length === 0} aria-label="Expand all layers">
               <ArrowsOutLineVerticalIcon className="size-3" />
             </Button>
           </Hint>
           <Hint content="Collapse all layers">
-            <Button type="button" variant="ghost" size="icon-xs" className="size-4 shrink-0 rounded p-0 text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/10" onClick={collapseAllLayers} disabled={!isDesktop || !canvasUrl || layerTree.length === 0} aria-label="Collapse all layers">
+            <Button type="button" variant="ghost" size="icon-xs" className="size-4 shrink-0 rounded p-0 text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/10" onClick={collapseAllLayers} disabled={!canvasUrl || layerTree.length === 0} aria-label="Collapse all layers">
               <ArrowsInLineVerticalIcon className="size-3" />
             </Button>
           </Hint>
         </div>
-        {isDesktop && canvasUrl && layerTree.length > 0 ? (
+        {canvasUrl && layerTree.length > 0 ? (
           <>
             {layerTree.map((node, index) => (
               <LayerRow
@@ -2335,11 +2334,13 @@ function WorkspaceToolbar({
   className,
   activeTool,
   isDesktop,
+  canvasUrl,
   onSelectTool,
 }: {
   className?: string;
   activeTool: ToolName;
   isDesktop: boolean;
+  canvasUrl: string | null;
   onSelectTool: (tool: ToolName) => void;
 }) {
   return (
@@ -2352,7 +2353,7 @@ function WorkspaceToolbar({
             size="icon-sm"
             className={`rounded-[5px] border text-muted-foreground hover:text-foreground ${activeTool === name ? "border-border bg-transparent text-foreground hover:bg-transparent" : "border-transparent"}`}
             onClick={() => onSelectTool(name)}
-            disabled={!isDesktop}
+            disabled={!isDesktop && !canvasUrl}
             aria-pressed={activeTool === name}
             aria-label={label}
           >
@@ -2458,51 +2459,60 @@ function PropertiesSidebar({
     <aside className={`flex h-full w-72 shrink-0 flex-col border-l border-border bg-white text-foreground ${className || ""}`}>
       <header className="shrink-0 border-b border-border bg-background px-3 py-2.5">
         <div className="flex items-center justify-end gap-1">
-          <div className="flex items-center gap-0">
-            <Hint content={isBuilding ? "Cancel the current Build" : !isDesktop ? "Open Formia in the desktop app to enable Build" : buildIndicator === "unavailable" || buildIndicator === "checking" ? codexAvailability.message : !projectPath ? "Select a project from the desktop app to enable Build" : buildIndicator === "up-to-date" ? buildIndicatorLabel(buildIndicator) : "Send staged visual changes to Codex"}>
-              <Button
-                type="button"
-                size="lg"
-                className={`rounded-r-none border-r border-primary-foreground/20 pl-4 font-normal ${buildBlocked ? "cursor-not-allowed" : ""}`}
-                onClick={() => {
-                  if (isBuilding) onCancelBuild();
-                  else if (!buildBlocked) onBuild();
-                }}
-                aria-disabled={buildBlocked}
-                aria-label={isBuilding ? "Cancel Build" : "Build visual changes with Codex"}
-              >
-                <span className={`size-[6px] shrink-0 rounded-full ${buildIndicatorClass(buildIndicator)}`} aria-hidden="true" />
-                {isBuilding ? "Cancel" : "Build"}
-              </Button>
-            </Hint>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button type="button" size="lg" className="-ml-px w-9 rounded-l-none px-0" aria-label="Build options">
-                  <CaretDownIcon className="size-3.5" />
+          {isDesktop ? (
+            <div className="flex items-center gap-0">
+              <Hint content={isBuilding ? "Cancel the current Build" : buildIndicator === "unavailable" || buildIndicator === "checking" ? codexAvailability.message : !projectPath ? "Select a project from the desktop app to enable Build" : buildIndicator === "up-to-date" ? buildIndicatorLabel(buildIndicator) : "Send staged visual changes to Codex"}>
+                <Button
+                  type="button"
+                  size="lg"
+                  className={`rounded-r-none border-r border-primary-foreground/20 pl-4 font-normal ${buildBlocked ? "cursor-not-allowed" : ""}`}
+                  onClick={() => {
+                    if (isBuilding) onCancelBuild();
+                    else if (!buildBlocked) onBuild();
+                  }}
+                  aria-disabled={buildBlocked}
+                  aria-label={isBuilding ? "Cancel Build" : "Build visual changes with Codex"}
+                >
+                  <span className={`size-[6px] shrink-0 rounded-full ${buildIndicatorClass(buildIndicator)}`} aria-hidden="true" />
+                  {isBuilding ? "Cancel" : "Build"}
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-44 rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
-                <DropdownMenuItem disabled={!selection && !previewChanges.length} onSelect={onResetAll}>
-                  <EraserIcon />
-                  Reset design
-                </DropdownMenuItem>
-                <DropdownMenuItem disabled={!isDesktop || !projectPath || projectServerStatus.state === "starting"} onSelect={onRestartServer}>
-                  <TerminalWindowIcon />
-                  Restart server
-                </DropdownMenuItem>
-                <DropdownMenuItem disabled={!canRefreshApp} onSelect={onRefreshApp}>
-                  <ArrowClockwiseIcon />
-                  Refresh app
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+              </Hint>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button type="button" size="lg" className="-ml-px w-9 rounded-l-none px-0" aria-label="Build options">
+                    <CaretDownIcon className="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-44 rounded-[5px] p-0.5 shadow-none ring-1 ring-foreground/10">
+                  <DropdownMenuItem disabled={!selection && !previewChanges.length} onSelect={onResetAll}>
+                    <EraserIcon />
+                    Reset design
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={!isDesktop || !projectPath || projectServerStatus.state === "starting"} onSelect={onRestartServer}>
+                    <TerminalWindowIcon />
+                    Restart server
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={!canRefreshApp} onSelect={onRefreshApp}>
+                    <ArrowClockwiseIcon />
+                    Refresh app
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          ) : (
+            <Button asChild size="lg">
+              <a href={windowsInstallerUrl} aria-label="Download Formia to open a local project">
+                <DownloadSimpleIcon />
+                Download Formia
+              </a>
+            </Button>
+          )}
         </div>
       </header>
 
-      {codexAvailability.state !== "available" || codexStatus.state !== "idle" || projectServerStatus.state === "failed" ? (
+      {isDesktop && (codexAvailability.state !== "available" || codexStatus.state !== "idle") || projectServerStatus.state === "failed" ? (
         <section className="shrink-0 space-y-2 border-b border-border px-3.5 py-3">
-          {codexAvailability.state !== "available" ? (
+          {isDesktop && codexAvailability.state !== "available" ? (
             <Hint content={codexAvailability.message}>
               <p className={`flex items-center gap-1.5 truncate text-xs ${codexAvailability.state === "unavailable" ? "text-destructive" : "text-muted-foreground"}`} role="status">
                 {codexAvailability.state === "checking" ? <CircleNotchIcon className="size-3 shrink-0 animate-spin" /> : <WarningCircleIcon className="size-3 shrink-0" />}
@@ -2544,7 +2554,7 @@ function PropertiesSidebar({
         </section>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto">
         {selection ? (
           <>
             {selection.react && typeof selection.react.props === "object" && selection.react.props !== null ? (
@@ -2589,12 +2599,14 @@ export function ProjectWorkspace({
   active,
   projectName,
   projectPath,
+  projectUrl,
   codexAvailability,
   onBack,
 }: {
   active: boolean;
   projectName: string;
   projectPath: string | null;
+  projectUrl: string | null;
   codexAvailability: CodexAvailability;
   onBack: () => void;
 }) {
@@ -2621,6 +2633,7 @@ export function ProjectWorkspace({
   const panStartRef = useRef<{ pointerX: number; pointerY: number; panX: number; panY: number } | null>(null);
   const webviewHostRef = useRef<HTMLDivElement>(null);
   const webviewRef = useRef<FormiaWebviewElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const artboardHeightRef = useRef(minimumArtboardHeight);
   const zoomRef = useRef(0.75);
   const panRef = useRef({ x: 0, y: 0 });
@@ -2762,6 +2775,66 @@ export function ProjectWorkspace({
   }, [active, canvasKey, canvasUrl, isDesktop, projectPath, updateArtboardHeight]);
 
   useEffect(() => {
+    if (isDesktop || !active || !projectUrl) return;
+
+    let cancelled = false;
+    const frame = window.requestAnimationFrame(() => {
+      if (cancelled) return;
+      setCanvasUrl(projectUrl);
+      setProjectServerStatus({ state: "ready", url: projectUrl, message: "" });
+      setSelection(null);
+      setStagedPreviewChanges([]);
+      setLayerTree([]);
+      setCanvasKey((key) => key + 1);
+    });
+
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
+  }, [active, isDesktop, projectUrl]);
+
+  useEffect(() => {
+    if (isDesktop) return;
+
+    const receiveOnlineMessage = (event: MessageEvent) => {
+      const message = event.data as { source?: string; channel?: string; args?: unknown[] } | null;
+      if (!message || message.source !== "formia-online-demo") return;
+
+      if (message.channel === "formia:online-ready") {
+        sendCanvasMessage("formia:set-tool", activeToolRef.current);
+        sendCanvasMessage("formia:get-layer-tree");
+        sendCanvasMessage("formia:get-preview-state");
+        return;
+      }
+      if (message.channel === "formia:layer-tree") {
+        const payload = message.args?.[0];
+        if (isLayerTreePayload(payload)) setLayerTree(payload.nodes as LayerNode[]);
+        return;
+      }
+      if (message.channel === "formia:element-selected" || message.channel === "formia:element-updated") {
+        const nextSelection = message.args?.[0];
+        if (!isSelectionPayload(nextSelection)) return;
+        setSelection(nextSelection as SelectedElement);
+        setStagedPreviewChanges(Array.isArray(nextSelection.previewChanges) ? nextSelection.previewChanges as PreviewChange[] : []);
+        return;
+      }
+      if (message.channel === "formia:preview-state") {
+        const payload = message.args?.[0];
+        if (isPreviewStatePayload(payload)) setStagedPreviewChanges(payload.changes as PreviewChange[]);
+        return;
+      }
+      if (message.channel === "formia:selection-cleared") {
+        setSelection(null);
+        setStagedPreviewChanges([]);
+      }
+    };
+
+    window.addEventListener("message", receiveOnlineMessage);
+    return () => window.removeEventListener("message", receiveOnlineMessage);
+  }, [isDesktop]);
+
+  useEffect(() => {
     const unsubscribe = window.formiaDesktop?.onCodexStatus((status) => {
       setCodexStatus({ state: status.state, message: status.message });
       if (status.state === "applied") {
@@ -2808,7 +2881,7 @@ export function ProjectWorkspace({
 
   useEffect(() => {
     activeToolRef.current = activeTool;
-    webviewRef.current?.send("formia:set-tool", activeTool);
+    sendCanvasMessage("formia:set-tool", activeTool);
   }, [activeTool]);
 
   function fitCanvas() {
@@ -2956,7 +3029,17 @@ export function ProjectWorkspace({
   }
 
   function sendCanvasMessage(channel: CanvasMessageChannel, ...args: CanvasMessageArgs<CanvasMessageChannel>) {
-    webviewRef.current?.send(channel, ...args);
+    const messageArgs = channel === "formia:set-tool"
+      ? [args[0], toolCursor(args[0] as ToolName)]
+      : args;
+    if (iframeRef.current) {
+      iframeRef.current.contentWindow?.postMessage({ source: "formia-parent", channel, args: messageArgs }, window.location.origin);
+      return;
+    }
+    if (webviewRef.current) {
+      webviewRef.current.send(channel, ...messageArgs);
+      return;
+    }
   }
 
   function handleWorkspaceShortcut(input: WorkspaceShortcutInput) {
@@ -3219,18 +3302,19 @@ export function ProjectWorkspace({
       className={active ? "relative flex h-screen flex-col overflow-hidden bg-white" : "hidden"}
       style={{ "--formia-cursor": toolCursor(activeTool) } as CSSProperties}
     >
-      <WorkspaceTopbar
-        sidebarsVisible={sidebarsVisible}
-        canGoBack={Boolean(canvasUrl) || canGoBack}
-        canGoForward={canGoForward}
-        onToggleSidebars={() => setSidebarsVisible((visible) => !visible)}
-        onBack={navigateBack}
-        onForward={navigateForward}
-      />
+      {isDesktop ? (
+        <WorkspaceTopbar
+          sidebarsVisible={sidebarsVisible}
+          canGoBack={Boolean(canvasUrl) || canGoBack}
+          canGoForward={canGoForward}
+          onToggleSidebars={() => setSidebarsVisible((visible) => !visible)}
+          onBack={navigateBack}
+          onForward={navigateForward}
+        />
+      ) : null}
       <div className="min-h-0 flex flex-1">
         <LayerPanel
           className={sidebarsVisible ? "" : "hidden"}
-          isDesktop={isDesktop}
           canvasUrl={canvasUrl}
           layerTree={layerTree}
           selection={selection}
@@ -3243,6 +3327,7 @@ export function ProjectWorkspace({
            className={sidebarsVisible ? "" : "hidden"}
            activeTool={activeTool}
            isDesktop={isDesktop}
+           canvasUrl={canvasUrl}
            onSelectTool={selectTool}
          />
       <div className="flex min-w-0 flex-1 flex-col">
@@ -3285,7 +3370,18 @@ export function ProjectWorkspace({
                   {active && isDesktop && window.formiaDesktop && canvasUrl ? (
                     <div key={`${canvasUrl}-${canvasKey}`} ref={webviewHostRef} className="h-full w-full" />
                   ) : canvasUrl ? (
-                    <iframe key={`${canvasUrl}-${canvasKey}`} src={canvasUrl} title={`${projectName} application canvas`} className="h-full w-full" />
+                    <iframe
+                      key={`${canvasUrl}-${canvasKey}`}
+                      ref={iframeRef}
+                      src={canvasUrl}
+                      title={`${projectName} application canvas`}
+                      className="h-full w-full border-0"
+                      onLoad={() => {
+                        sendCanvasMessage("formia:set-tool", activeToolRef.current);
+                        sendCanvasMessage("formia:get-layer-tree");
+                        sendCanvasMessage("formia:get-preview-state");
+                      }}
+                    />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center bg-background px-10 text-center">
                       <div>

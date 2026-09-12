@@ -19,6 +19,7 @@ const eslintConfig = defineConfig([
     "build/**",
     ".desktop-build/**",
     "release/**",
+    "public/demos/**",
     "next-env.d.ts",
   ]),
 ]);

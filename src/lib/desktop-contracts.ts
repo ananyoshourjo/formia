@@ -29,7 +29,7 @@ export type ProjectServerStatus = {
 };
 
 export type CanvasMessage =
-  | { channel: "formia:set-tool"; args: [string] }
+  | { channel: "formia:set-tool"; args: [string, string?] }
   | { channel: "formia:get-layer-tree"; args: [] }
   | { channel: "formia:get-preview-state"; args: [] }
   | { channel: "formia:measure-page-height"; args: [] }
