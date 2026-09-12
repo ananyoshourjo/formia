@@ -7,6 +7,7 @@
   var highlightedElement = null;
   var previousHighlight = "";
   var activeTool = "interact";
+  var textEditingState = null;
   var selectionOverlay = document.createElement("div");
   var hoverOverlay = document.createElement("div");
   var cursorStyle = document.createElement("style");
@@ -121,6 +122,72 @@
     hideOverlay(hoverOverlay);
     setOutline("selected", element, "2px solid #2563eb");
     post(channel || "formia:element-selected", [selectionPayload(element)]);
+  }
+
+  function isTextEditable(element) {
+    return element instanceof HTMLElement && element.children.length === 0 && textFor(element).length > 0;
+  }
+
+  function finishTextEditing() {
+    if (!textEditingState) return;
+    var element = textEditingState.element;
+    if (textEditingState.contentEditable === null) element.removeAttribute("contenteditable");
+    else element.setAttribute("contenteditable", textEditingState.contentEditable);
+    if (textEditingState.spellcheck === null) element.removeAttribute("spellcheck");
+    else element.setAttribute("spellcheck", textEditingState.spellcheck);
+    element.removeEventListener("input", handleTextInput);
+    textEditingState = null;
+  }
+
+  function recordTextChange(from, to) {
+    if (from === to || !selectedElement) return;
+    var id = ensureSelectionId(selectedElement);
+    var existing = previewChanges.find(function (change) { return change.selectionId === id; });
+    if (!existing) {
+      existing = { selectionId: id, tagName: selectedElement.tagName.toLowerCase(), source: null, text: textFor(selectedElement), changes: [] };
+      previewChanges.push(existing);
+    }
+    var change = existing.changes.find(function (item) { return item.kind === "text" && item.property === "textContent"; });
+    if (change) change.to = to;
+    else existing.changes.push({ kind: "text", property: "textContent", from: from, to: to });
+    post("formia:preview-state", [{ changes: previewChanges }]);
+  }
+
+  function handleTextInput(event) {
+    var element = event.currentTarget;
+    if (!(element instanceof HTMLElement) || textEditingState?.element !== element) return;
+    recordTextChange(textEditingState.originalHTML, element.innerHTML);
+    sendSelection(element, "formia:element-updated");
+  }
+
+  function beginTextEditing(element) {
+    if (!isTextEditable(element)) return false;
+    if (textEditingState?.element === element) {
+      element.focus();
+      return true;
+    }
+
+    finishTextEditing();
+    textEditingState = {
+      element: element,
+      originalHTML: element.innerHTML,
+      contentEditable: element.getAttribute("contenteditable"),
+      spellcheck: element.getAttribute("spellcheck")
+    };
+    element.setAttribute("contenteditable", "true");
+    element.setAttribute("spellcheck", "false");
+    element.addEventListener("input", handleTextInput);
+    element.focus();
+
+    var range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(false);
+    var browserSelection = window.getSelection();
+    if (browserSelection) {
+      browserSelection.removeAllRanges();
+      browserSelection.addRange(range);
+    }
+    return true;
   }
 
   function ensureOverlays() {
@@ -290,20 +357,26 @@
     if (channel === "formia:set-tool") {
       activeTool = String(args[0] || "interact");
       setCanvasCursor(args[1]);
+      if (activeTool !== "text") finishTextEditing();
       if (activeTool !== "select") clearHighlight();
+      if (activeTool === "text" && selectedElement) beginTextEditing(selectedElement);
     } else if (channel === "formia:get-layer-tree") sendLayerTree();
     else if (channel === "formia:get-preview-state") post("formia:preview-state", [{ changes: previewChanges }]);
     else if (channel === "formia:select-layer") {
       var element = document.querySelector('[data-formia-selection-id="' + CSS.escape(args[0]) + '"]');
-      if (element) sendSelection(element);
+      if (element) {
+        sendSelection(element);
+        if (activeTool === "text") beginTextEditing(element);
+      }
     } else if (channel === "formia:highlight-layer") highlight(args[0]);
     else if (channel === "formia:clear-layer-highlight") clearHighlight();
     else if (channel === "formia:apply-style") applyStyle(args[0] && args[0].property, args[0] && args[0].value);
     else if (channel === "formia:reset-style") resetStyle(args[0]);
-    else if (channel === "formia:apply-text" && selectedElement && selectedElement.children.length === 0) {
-      var before = selectedElement.textContent || "";
+    else if (channel === "formia:apply-text" && selectedElement && isTextEditable(selectedElement)) {
+      finishTextEditing();
+      var before = selectedElement.innerHTML;
       selectedElement.textContent = String(args[0] || "");
-      recordChange("textContent", before, selectedElement.textContent);
+      recordTextChange(before, selectedElement.innerHTML);
       sendSelection(selectedElement, "formia:element-updated");
     } else if (channel === "formia:reset-overrides") {
       previewChanges = [];
@@ -314,6 +387,7 @@
     else if (channel === "formia:delete-selected-layer") deleteSelected();
     else if (channel === "formia:move-selected-layer") moveSelected(args[0]);
     else if (channel === "formia:clear-selection") {
+      finishTextEditing();
       selectedElement = null;
       restoreOutline("selected");
       restoreOutline("hover");
@@ -323,6 +397,13 @@
     }
   }
 
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "Escape" || !textEditingState) return;
+    finishTextEditing();
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
+
   document.addEventListener("pointerdown", function (event) {
     if (activeTool !== "select") return;
     event.preventDefault();
@@ -331,15 +412,26 @@
     if (target && isInspectable(target)) sendSelection(target);
   }, true);
   document.addEventListener("click", function (event) {
-    if (activeTool !== "select") return;
+    if (activeTool !== "select" && activeTool !== "text") return;
     event.preventDefault();
     event.stopPropagation();
     var target = event.target instanceof Element ? event.target.closest("[data-formia-selection-id]") : null;
-    if (target && isInspectable(target)) sendSelection(target);
+    if (!target || !isInspectable(target)) return;
+    if (activeTool === "text") {
+      if (!isTextEditable(target)) return;
+      sendSelection(target);
+      beginTextEditing(target);
+      return;
+    }
+    sendSelection(target);
   }, true);
   document.addEventListener("pointerover", function (event) {
-    if (activeTool !== "select") return;
+    if (activeTool !== "select" && activeTool !== "text") return;
     var target = event.target instanceof Element ? event.target.closest("[data-formia-selection-id]") : null;
+    if (activeTool === "text" && (!target || !isTextEditable(target))) {
+      clearHighlight();
+      return;
+    }
     if (target && isInspectable(target)) {
       highlightedElement = target;
       if (target === selectedElement) {

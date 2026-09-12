@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## [1.2.0] - 2026-09-13
+
+### Added
+
+- Added direct text editing in the browser workspace with staged preview changes.
+- Added collapsible layer ancestry controls so selected content can remain visible while exploring the layer tree.
+
+### Changed
+
+- Updated the landing-page View Demo action to open the browser workspace in a new tab.
+
 ## [1.1.1] - 2026-09-12
 
 ### Fixed

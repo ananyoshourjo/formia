@@ -18,7 +18,7 @@ export function LandingPage() {
           <h1 id="formia-title">Formia</h1>
           <p className={styles.intro}>Shape real interfaces by sight, then build the changes back into your project.</p>
           <div className={styles.actions}>
-            <Link className={styles.action} href="/demo">
+            <Link className={styles.action} href="/demo" target="_blank" rel="noreferrer">
               View Demo <ArrowUpRightIcon aria-hidden="true" />
             </Link>
             <a className={`${styles.action} ${styles.secondary}`} href={windowsInstallerUrl}>
