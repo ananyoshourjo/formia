@@ -1,0 +1,1 @@
+import{t as e}from"./forbidden-D7ukappt.js";var t=e;export{t as component};

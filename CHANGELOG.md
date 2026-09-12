@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## [1.1.0] - 2026-09-12
+
+### Added
+
+- Added a public Formia landing page with direct browser-demo and Windows download actions.
+- Added a browser version of the Formia workspace with an inspectable built-in dashboard demo.
+
+### Changed
+
+- Preserved the native project workflow for Electron builds while adapting canvas inspection and editing controls for the browser demo.
+
 ## [1.0.1] - 2026-09-11
 
 ### Fixed

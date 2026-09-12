@@ -49,6 +49,7 @@ export function FormiaApp() {
         active={Boolean(project)}
         projectName={project?.name || "Project"}
         projectPath={project?.path || null}
+        projectUrl={project?.url || null}
         codexAvailability={codexAvailability}
         onBack={() => setProject(null)}
       />
