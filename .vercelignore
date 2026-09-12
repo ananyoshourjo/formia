@@ -1,0 +1,13 @@
+.codex-remote-attachments/
+.desktop-build/
+.electron-download/
+.git/
+.next/
+.playwright-cli/
+.vercel/
+node_modules/
+out/
+output/
+release/
+*.tsbuildinfo
+*.log
