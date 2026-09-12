@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [1.1.1] - 2026-09-12
+
+### Fixed
+
+- Hid native scrollbar visuals across the workspace while preserving panel and menu scrolling.
+
 ## [1.1.0] - 2026-09-12
 
 ### Added
