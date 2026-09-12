@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [1.2.1] - 2026-09-13
+
+### Fixed
+
+- Added the hand cursor to the landing-page action buttons so their clickability is clear on hover.
+
 ## [1.2.0] - 2026-09-13
 
 ### Added
