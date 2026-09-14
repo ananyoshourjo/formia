@@ -1,6 +1,6 @@
 {
   "name": "formia-app",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "A desktop visual editor for making focused changes to local React projects with Codex.",
   "author": "Ananyo Shourjo",
   "license": "MIT",
