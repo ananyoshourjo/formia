@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## [1.4.0] - 2026-09-15
+
+### Added
+
+- Added Select-tool canvas drop support for inserted text layers, allowing new paragraphs to be reparented into suitable rendered containers while preserving free movement.
+
+### Changed
+
+- Kept inserted text position-aware when its parent changes so the paragraph remains at the drop location.
+
 ## [1.3.0] - 2026-09-15
 
 ### Added

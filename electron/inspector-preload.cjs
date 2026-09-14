@@ -77,6 +77,8 @@ let layerTreeTimer = null;
 
 const selectionAttribute = "data-formia-selection-id";
 const insertedTextAttribute = "data-formia-inserted-text";
+const canvasTextDropExcludedTags = new Set(["A", "B", "BR", "CODE", "EM", "H1", "H2", "H3", "H4", "H5", "H6", "I", "INPUT", "LABEL", "P", "PRE", "S", "SELECT", "SMALL", "SPAN", "STRONG", "TEXTAREA", "U"]);
+const canvasTextDropContainerDisplays = new Set(["block", "flow-root", "flex", "grid", "inline-block", "inline-flex", "inline-grid", "list-item", "table", "table-cell", "table-caption", "table-row"]);
 const layerTreeExcludedTags = new Set(["SCRIPT", "STYLE", "LINK", "META", "TITLE", "NOSCRIPT", "TEMPLATE", "PATH", "CIRCLE", "RECT", "LINE", "POLYLINE", "POLYGON"]);
 const maximumLayerTreeNodes = 800;
 const maximumLayerTreeDepth = 12;
@@ -872,6 +874,7 @@ function beginTextPositionDrag(event, element) {
     initialLeft: left,
     initialTop: top,
     moved: false,
+    dropTarget: null,
   };
   element.setPointerCapture?.(event.pointerId);
 }
@@ -895,14 +898,21 @@ function moveTextPositionDrag(event) {
 
   event.preventDefault();
   event.stopImmediatePropagation();
-  drag.element.style.setProperty("left", `${Math.round(drag.initialLeft + deltaX)}px`, "important");
-  drag.element.style.setProperty("top", `${Math.round(drag.initialTop + deltaY)}px`, "important");
+  const left = Math.round(drag.initialLeft + deltaX);
+  const top = Math.round(drag.initialTop + deltaY);
+  drag.element.style.setProperty("left", `${left}px`, "important");
+  drag.element.style.setProperty("top", `${top}px`, "important");
   const entry = insertedTextElements.get(drag.element);
   if (entry) {
     entry.inlineStyle = drag.element.getAttribute("style") || entry.inlineStyle;
-    entry.left = Math.round(drag.initialLeft + deltaX);
-    entry.top = Math.round(drag.initialTop + deltaY);
+    entry.left = left;
+    entry.top = top;
   }
+
+  drag.dropTarget = findCanvasTextDropTarget(event.clientX, event.clientY, drag.element);
+  if (drag.dropTarget) showDropTarget(drag.dropTarget);
+  else hideDropIndicator();
+
   moveOverlay(drag.element);
   return true;
 }
@@ -913,11 +923,39 @@ function endTextPositionDrag(event) {
   const drag = textPositionDrag;
   textPositionDrag = null;
   drag.element.releasePointerCapture?.(event.pointerId);
-  if (!drag.moved) return true;
+  if (!drag.moved) {
+    hideDropIndicator();
+    return true;
+  }
 
   if (event.type === "pointercancel") suppressNextClick = false;
   event.preventDefault();
   event.stopImmediatePropagation();
+
+  const target = event.type === "pointerup"
+    ? findCanvasTextDropTarget(event.clientX, event.clientY, drag.element)
+    : null;
+  hideDropIndicator();
+
+  if (target && moveElementTo(drag.element, target.parent, target.before)) {
+    const position = positionForPoint(drag.element, event.clientX, event.clientY);
+    drag.element.style.setProperty("left", `${position.left}px`, "important");
+    drag.element.style.setProperty("top", `${position.top}px`, "important");
+
+    const entry = insertedTextElements.get(drag.element);
+    if (entry) {
+      entry.inlineStyle = drag.element.getAttribute("style") || entry.inlineStyle;
+      entry.left = position.left;
+      entry.top = position.top;
+    }
+
+    selectElement(drag.element);
+    moveOverlay(drag.element);
+    ipcRenderer.sendToHost("formia:element-selected", selectionPayload(drag.element));
+    sendLayerTree();
+    return true;
+  }
+
   sendUpdatedSelection();
   return true;
 }
@@ -1319,6 +1357,42 @@ function findCanvasDropTarget(x, y, source) {
   return { type: "inside", element, parent: element, before: null };
 }
 
+function isCanvasTextDropContainer(element, source) {
+  if (!(element instanceof Element) || isDocumentSurface(element) || element === source || source.contains(element)) return false;
+  if (layerTreeExcludedTags.has(element.tagName) || canvasTextDropExcludedTags.has(element.tagName)) return false;
+
+  const computed = getComputedStyle(element);
+  if (!canvasTextDropContainerDisplays.has(computed.display) || computed.visibility === "hidden" || computed.display === "none") return false;
+
+  const rect = element.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function findCanvasTextDropTarget(x, y, source) {
+  if (!(source instanceof Element)) return null;
+
+  const pointerEvents = source.style.getPropertyValue("pointer-events");
+  const pointerEventsPriority = source.style.getPropertyPriority("pointer-events");
+  source.style.setProperty("pointer-events", "none", "important");
+
+  let element = null;
+  try {
+    element = document.elementFromPoint(x, y);
+  } finally {
+    if (pointerEvents) source.style.setProperty("pointer-events", pointerEvents, pointerEventsPriority);
+    else source.style.removeProperty("pointer-events");
+  }
+
+  while (element instanceof Element && !isDocumentSurface(element)) {
+    if (isCanvasTextDropContainer(element, source) && element !== source.parentElement) {
+      return { type: "inside", element, parent: element, before: null };
+    }
+    element = element.parentElement;
+  }
+
+  return null;
+}
+
 function beginCanvasLayerDrag(event) {
   if (activeTool !== "select" || event.button !== 0 || layerPointerDrag || textPositionDrag) return;
   const element = event.target;
@@ -1383,6 +1457,18 @@ function endCanvasLayerDrag(event) {
   hideDropIndicator();
   if (target) commitElementMove(drag.element, target);
 }
+
+function cancelTextPositionDrag() {
+  if (!textPositionDrag) return;
+  endTextPositionDrag({
+    pointerId: textPositionDrag.pointerId,
+    type: "pointercancel",
+    preventDefault() {},
+    stopImmediatePropagation() {},
+  });
+}
+
+window.addEventListener("blur", cancelTextPositionDrag);
 
 function compactValue(value, depth = 0, seen = new WeakSet()) {
   if (value == null || ["string", "number", "boolean"].includes(typeof value)) return value;
@@ -1782,6 +1868,12 @@ window.addEventListener(
     const targetIsEditable = Boolean(textEditingState) || isEditableKeyboardTarget(event.target);
 
     if (event.code === "Escape") {
+      if (textPositionDrag) {
+        cancelTextPositionDrag();
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
       if (textEditingState) {
         finishTextEditing();
         event.preventDefault();
@@ -1829,6 +1921,7 @@ window.addEventListener(
 
 ipcRenderer.on("formia:set-tool", (_event, tool) => {
   if (!["interact", "select", "text"].includes(tool)) return;
+  cancelTextPositionDrag();
   activeTool = tool;
   installCursorStyle();
   if (activeTool === "select") {
