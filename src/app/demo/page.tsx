@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { FormiaApp } from "@/components/formia-app";
+import { WebDemoApp } from "@/components/web-demo-app";
 
 export const metadata: Metadata = {
   title: "Formia Demo",
@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function DemoPage() {
-  return <FormiaApp />;
+  return <WebDemoApp />;
 }

@@ -2,12 +2,12 @@
 
 import { useEffect, useState, type CSSProperties } from "react";
 
-import { ProjectSelector } from "@/components/project-selector";
-import { ProjectWorkspace } from "@/components/project-workspace";
+import { DesktopProjectSelector } from "@/components/desktop-project-selector";
+import { DesktopWorkspace } from "@/components/desktop-workspace";
 import type { CodexAvailability, Project } from "@/lib/desktop-contracts";
 import { toolCursor } from "@/lib/tool-cursors";
 
-export function FormiaApp() {
+export function DesktopApp() {
   const [project, setProject] = useState<Project | null>(null);
   const [codexAvailability, setCodexAvailability] = useState<CodexAvailability>({ state: "checking", message: "Checking for Codex" });
 
@@ -44,8 +44,8 @@ export function FormiaApp() {
 
   return (
     <div style={{ "--formia-cursor": toolCursor("interact") } as CSSProperties}>
-      {project ? null : <ProjectSelector codexAvailability={codexAvailability} onOpen={setProject} />}
-      <ProjectWorkspace
+      {project ? null : <DesktopProjectSelector codexAvailability={codexAvailability} onOpen={setProject} />}
+      <DesktopWorkspace
         active={Boolean(project)}
         projectName={project?.name || "Project"}
         projectPath={project?.path || null}

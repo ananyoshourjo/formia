@@ -1,7 +1,7 @@
 "use client";
 
-import { createElement, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { AlignBottomIcon, AlignCenterHorizontalSimpleIcon, AlignCenterVerticalIcon, AlignCenterVerticalSimpleIcon, AngleIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowLineRightIcon, ArrowLineUpIcon, ArrowRightIcon, ArrowsInLineVerticalIcon, ArrowsOutLineHorizontalIcon, ArrowsOutLineVerticalIcon, BoundingBoxIcon, BrowserIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CircleIcon, CircleNotchIcon, ClipboardTextIcon, ColumnsIcon, CompassIcon, CornersOutIcon, CrosshairSimpleIcon, CursorIcon, CursorTextIcon, DotIcon, DotsNineIcon, DownloadSimpleIcon, EraserIcon, EyeIcon, EyeSlashIcon, FlipHorizontalIcon, FlipVerticalIcon, FrameCornersIcon, GearSixIcon, GitCommitIcon, GridFourIcon, ImageIcon, LinkSimpleIcon, LinkSimpleHorizontalIcon, ListBulletsIcon, ListDashesIcon, ListNumbersIcon, MinusIcon, MouseScrollIcon, NavigationArrowIcon, ParagraphIcon, PathIcon, PlusIcon, PushPinIcon, RectangleIcon, RowsIcon, ShapesIcon, SidebarIcon, SidebarSimpleIcon, SplitHorizontalIcon, SplitVerticalIcon, SquareIcon, StackIcon, StackSimpleIcon, TableIcon, TerminalWindowIcon, TextHIcon, TextboxIcon, VideoCameraIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { createElement, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { AlignBottomIcon, AlignCenterHorizontalSimpleIcon, AlignCenterVerticalIcon, AlignCenterVerticalSimpleIcon, AngleIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowLineDownIcon, ArrowLineLeftIcon, ArrowLineRightIcon, ArrowLineUpIcon, ArrowRightIcon, ArrowsInLineVerticalIcon, ArrowsOutLineHorizontalIcon, ArrowsOutLineVerticalIcon, BoundingBoxIcon, BrowserIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CircleIcon, CircleNotchIcon, ClipboardTextIcon, ColumnsIcon, CompassIcon, CornersOutIcon, CrosshairSimpleIcon, CursorIcon, CursorTextIcon, DotIcon, DotsNineIcon, DownloadSimpleIcon, EraserIcon, EyeIcon, EyeSlashIcon, FlipHorizontalIcon, FlipVerticalIcon, FrameCornersIcon, GearSixIcon, GitCommitIcon, GridFourIcon, ImageIcon, LinkSimpleIcon, LinkSimpleHorizontalIcon, ListBulletsIcon, ListDashesIcon, ListNumbersIcon, MinusIcon, MouseScrollIcon, NavigationArrowIcon, ParagraphIcon, PathIcon, PlusIcon, PushPinIcon, RectangleIcon, RowsIcon, ShapesIcon, SidebarIcon, SidebarSimpleIcon, SplitHorizontalIcon, SplitVerticalIcon, SquareIcon, StackIcon, StackSimpleIcon, TableIcon, TerminalWindowIcon, TextHIcon, TextboxIcon, VideoCameraIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
 import { AlignBottomFilled, AlignHorizontalCenterFilled, AlignLeft2Filled, AlignRight2Filled, AlignTopFilled } from "@mingcute/react/core-filled";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
@@ -45,18 +45,25 @@ type SelectedElement = {
 
 type PreviewChange = {
   selectionId: string | null;
+  insertionId?: string | null;
   tagName: string;
   source: string | null;
   text: string;
   changes: Array<{
     kind: "style" | "class" | "text" | "structure";
     property?: string;
-    operation?: "move" | "delete" | "duplicate";
+    operation?: "move" | "delete" | "duplicate" | "insert";
     from: string;
     to: string;
     intent?: "replace-primary-font-family";
     preserveFallbacks?: boolean;
     primaryFont?: string;
+    elementType?: "text";
+    elementTagName?: "p";
+    content?: string;
+    position?: { left: number; top: number };
+    sourceContext?: unknown;
+    previewParent?: unknown;
   }>;
 };
 
@@ -106,11 +113,10 @@ type WorkspaceShortcutInput = CanvasKeyboardInput & {
   preventDefault?: () => void;
 };
 
-const subscribeToRuntime = () => () => undefined;
-const getDesktopSnapshot = () => Boolean(window.formiaDesktop?.isDesktop);
-const getDesktopServerSnapshot = () => false;
 const artboardWidth = 1440;
 const minimumArtboardHeight = 900;
+
+export type WorkspaceRuntime = "desktop" | "web-demo";
 
 function projectSessionPartition(projectPath: string | null) {
   const value = (projectPath || "untitled").toLowerCase();
@@ -1901,17 +1907,11 @@ function LayoutGroup({
             <div className="space-y-1 pt-1">
               <LayoutLabel>Inset</LayoutLabel>
               <div className="grid grid-cols-2 gap-1">
-                <SizingLayoutField label="T" name="top" value={selection.styles.top} fallback={0} keywordOptions={insetKeywords} inlineLabel onCommit={(value, unit) => commitInset("top", value, unit)} onReset={() => onResetStyle("top")} />
-                <SizingLayoutField label="B" name="bottom" value={selection.styles.bottom} fallback={0} keywordOptions={insetKeywords} inlineLabel onCommit={(value, unit) => commitInset("bottom", value, unit)} onReset={() => onResetStyle("bottom")} />
-                <SizingLayoutField label="R" name="right" value={selection.styles.right} fallback={0} keywordOptions={insetKeywords} inlineLabel onCommit={(value, unit) => commitInset("right", value, unit)} onReset={() => onResetStyle("right")} />
-                <SizingLayoutField label="L" name="left" value={selection.styles.left} fallback={0} keywordOptions={insetKeywords} inlineLabel onCommit={(value, unit) => commitInset("left", value, unit)} onReset={() => onResetStyle("left")} />
+                <SizingLayoutField label={<ArrowLineUpIcon className="size-3.5" aria-hidden="true" />} name="top" value={selection.styles.top} fallback={0} keywordOptions={insetKeywords} inlineLabel onCommit={(value, unit) => commitInset("top", value, unit)} onReset={() => onResetStyle("top")} />
+                <SizingLayoutField label={<ArrowLineDownIcon className="size-3.5" aria-hidden="true" />} name="bottom" value={selection.styles.bottom} fallback={0} keywordOptions={insetKeywords} inlineLabel onCommit={(value, unit) => commitInset("bottom", value, unit)} onReset={() => onResetStyle("bottom")} />
+                <SizingLayoutField label={<ArrowLineRightIcon className="size-3.5" aria-hidden="true" />} name="right" value={selection.styles.right} fallback={0} keywordOptions={insetKeywords} inlineLabel onCommit={(value, unit) => commitInset("right", value, unit)} onReset={() => onResetStyle("right")} />
+                <SizingLayoutField label={<ArrowLineLeftIcon className="size-3.5" aria-hidden="true" />} name="left" value={selection.styles.left} fallback={0} keywordOptions={insetKeywords} inlineLabel onCommit={(value, unit) => commitInset("left", value, unit)} onReset={() => onResetStyle("left")} />
               </div>
-              {positionMode === "absolute" || positionMode === "fixed" ? (
-                <div className="flex items-center justify-between px-1 text-[11px] leading-4">
-                  <span className="text-muted-foreground">Anchor</span>
-                  <span className="text-foreground">{positionMode === "fixed" ? "Viewport" : "Nearest positioned parent"}</span>
-                </div>
-              ) : null}
             </div>
           ) : null}
           </div>
@@ -2105,9 +2105,14 @@ function LayerRow({
   const isInsideTarget = dropTarget?.type === "inside" && dropTarget.selectionId === node.selectionId;
   const isBeforeTarget = dropTarget?.type === "before" && dropTarget.selectionId === node.selectionId;
   const isAfterTarget = dropTarget?.type === "after" && dropTarget.selectionId === node.selectionId;
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (selected) rowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
 
   return (
-    <div>
+    <div ref={rowRef}>
       {isBeforeTarget ? <div className="h-0.5 rounded-full bg-foreground" style={{ marginLeft: `${depth * 12 + 26}px` }} /> : null}
       <div
         className={`group flex min-w-0 items-center gap-0.5 rounded-[5px] ${selected ? "bg-accent text-accent-foreground" : "hover:bg-muted/40"} ${isInsideTarget ? "ring-1 ring-foreground/30" : ""} ${draggedId === node.selectionId ? "opacity-40" : ""}`}
@@ -2610,22 +2615,30 @@ function codexStatusLabel(status: CodexStatus) {
   return "";
 }
 
-export function ProjectWorkspace({
-  active,
-  projectName,
-  projectPath,
-  projectUrl,
-  codexAvailability,
-  onBack,
-}: {
+export type ProjectWorkspaceProps = {
+  runtime: WorkspaceRuntime;
   active: boolean;
   projectName: string;
   projectPath: string | null;
   projectUrl: string | null;
   codexAvailability: CodexAvailability;
   onBack: () => void;
-}) {
-  const isDesktop = useSyncExternalStore(subscribeToRuntime, getDesktopSnapshot, getDesktopServerSnapshot);
+};
+
+/**
+ * Shared visual editing surface. Product-specific entry points choose the
+ * runtime; this component does not discover or decide which product is open.
+ */
+export function ProjectWorkspace({
+  runtime,
+  active,
+  projectName,
+  projectPath,
+  projectUrl,
+  codexAvailability,
+  onBack,
+}: ProjectWorkspaceProps) {
+  const isDesktop = runtime === "desktop";
   const [canvasUrl, setCanvasUrl] = useState<string | null>(null);
   const [canvasKey, setCanvasKey] = useState(0);
   const [activeTool, setActiveTool] = useState<ToolName>("interact");

@@ -8,6 +8,12 @@ Formia is a designer-first visual prompt surface for existing React applications
 
 The connected project remains the source of truth. Source details, prompt construction, and implementation work stay behind the interface.
 
+## Product surfaces
+
+The Windows desktop app is the primary Formia product. It is where new product capabilities are implemented and validated first.
+
+The browser experience is a separate, intentionally limited demo. It uses a bundled example project to demonstrate the visual editing idea, but it does not open local projects, write source files, or expose Build. A desktop feature may be adapted for the demo later when that improves the explanation of Formia; web parity is not a goal.
+
 ## Version 1 scope
 
 - Windows desktop application.
@@ -25,9 +31,10 @@ Formia v1 is deliberately not a general site builder, IDE, design document, depl
 ## Post-v1 roadmap
 
 - Responsive viewport and breakpoint-aware editing.
-- Browser-based interactive demos using bundled example applications. Browser demos will not edit local files or expose Build; they will point users to the desktop download.
 - Additional visual controls and direct manipulation where they simplify common refinements.
 - Broader framework and project coverage based on real usage.
+
+Web-demo adaptations of desktop features remain optional follow-up work after the desktop implementation is complete.
 
 ## Known boundaries
 
@@ -37,6 +44,7 @@ Formia v1 is deliberately not a general site builder, IDE, design document, depl
 - Preview changes exist in the running page until they are reset, refreshed, or sent to Build.
 - Structural previews directly rearrange rendered DOM and are intended as visual instructions for Codex.
 - Responsive breakpoint editing is not part of v1.
+- The browser demo is not a second full editor and must not be treated as a feature-parity target.
 
 ## Design principles
 
