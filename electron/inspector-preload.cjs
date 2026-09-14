@@ -71,10 +71,12 @@ let selectedElement = null;
 let selectedElementIdentity = null;
 let textEditingState = null;
 let selectionSequence = 0;
+let insertedTextSequence = 0;
 let layerTreeObserver = null;
 let layerTreeTimer = null;
 
 const selectionAttribute = "data-formia-selection-id";
+const insertedTextAttribute = "data-formia-inserted-text";
 const layerTreeExcludedTags = new Set(["SCRIPT", "STYLE", "LINK", "META", "TITLE", "NOSCRIPT", "TEMPLATE", "PATH", "CIRCLE", "RECT", "LINE", "POLYLINE", "POLYGON"]);
 const maximumLayerTreeNodes = 800;
 const maximumLayerTreeDepth = 12;
@@ -149,9 +151,11 @@ const structureSnapshots = new WeakMap();
 const structuralMoves = new Map();
 const deletedElements = new Map();
 const duplicatedElements = new Map();
+const insertedTextElements = new Map();
 let isReapplyingStructuralMoves = false;
 let isRebindingPreviewOverrides = false;
 let layerPointerDrag = null;
+let textPositionDrag = null;
 let suppressNextClick = false;
 let canvasDropTarget = null;
 
@@ -484,6 +488,51 @@ function rebindPreviewOverrides() {
       entry.clone = clone;
     }
 
+    for (const entry of Array.from(insertedTextElements.values())) {
+      const previous = entry.element;
+      if (previous?.isConnected) {
+        entry.text = previous.textContent || "";
+        entry.inlineStyle = previous.getAttribute("style") || entry.inlineStyle;
+        entry.selectionId = previous.getAttribute(selectionAttribute) || entry.selectionId;
+        continue;
+      }
+
+      if (previous instanceof Element) {
+        entry.text = previous.textContent || entry.text;
+        entry.inlineStyle = previous.getAttribute("style") || entry.inlineStyle;
+        entry.selectionId = previous.getAttribute(selectionAttribute) || entry.selectionId;
+      }
+
+      const parent = entry.parent?.isConnected
+        ? entry.parent
+        : findPreviewReplacement(entry.parentIdentity) || findCanvasInsertionParent();
+      if (!(parent instanceof Element)) continue;
+
+      const inserted = document.createElement("p");
+      inserted.setAttribute(insertedTextAttribute, entry.insertionId);
+      inserted.textContent = entry.text;
+      if (entry.inlineStyle) inserted.setAttribute("style", entry.inlineStyle);
+      if (entry.selectionId) inserted.setAttribute(selectionAttribute, entry.selectionId);
+      parent.appendChild(inserted);
+
+      insertedTextElements.delete(previous);
+      insertedTextElements.set(inserted, entry);
+      entry.element = inserted;
+      entry.parent = parent;
+      entry.parentIdentity = elementIdentity(parent);
+
+      for (const move of structuralMoves.values()) {
+        if (move.element !== previous) continue;
+        move.element = inserted;
+        move.elementIdentity = elementIdentity(inserted);
+      }
+
+      if (selectedElement === previous) {
+        selectedElement = inserted;
+        selectedElementIdentity = elementIdentity(inserted);
+      }
+    }
+
     if (selectedElement instanceof Element && selectedElement.isConnected) {
       ensureLayerSelectionId(selectedElement);
       moveOverlay(selectedElement);
@@ -528,7 +577,7 @@ function finishTextEditing() {
   textEditingState = null;
 }
 
-function beginTextEditing(element) {
+function beginTextEditing(element, selectContents = false) {
   if (!isTextEditable(element)) return false;
   if (textEditingState?.element === element) {
     element.focus();
@@ -550,7 +599,7 @@ function beginTextEditing(element) {
 
   const range = document.createRange();
   range.selectNodeContents(element);
-  range.collapse(false);
+  if (!selectContents) range.collapse(false);
   const browserSelection = window.getSelection();
   browserSelection?.removeAllRanges();
   browserSelection?.addRange(range);
@@ -603,6 +652,93 @@ function layerDescription(element) {
   return element.id ? `${name} (#${element.id})` : name;
 }
 
+function isInsertedTextLayer(element) {
+  return element instanceof Element && element.hasAttribute(insertedTextAttribute);
+}
+
+function findCanvasInsertionParent() {
+  return document.body || null;
+}
+
+function insertionSourceContext(element) {
+  if (!(element instanceof Element) || isDocumentSurface(element)) return null;
+
+  ensureLayerSelectionId(element);
+  const details = inspectElement(element);
+  return {
+    selectionId: details.selectionId,
+    tagName: details.tagName,
+    id: details.id,
+    className: details.className,
+    text: details.text,
+    source: details.react?.source || null,
+    component: details.react?.name || null,
+  };
+}
+
+function positionForPoint(element, clientX, clientY) {
+  const offsetParent = element.offsetParent instanceof Element ? element.offsetParent : document.documentElement;
+  const rect = offsetParent.getBoundingClientRect();
+  const isDocumentParent = offsetParent === document.documentElement || offsetParent === document.body;
+  const scrollLeft = isDocumentParent ? window.scrollX : offsetParent.scrollLeft;
+  const scrollTop = isDocumentParent ? window.scrollY : offsetParent.scrollTop;
+
+  return {
+    left: Math.round(clientX - rect.left + scrollLeft),
+    top: Math.round(clientY - rect.top + scrollTop),
+  };
+}
+
+function createInsertedTextNode(entry, parent) {
+  const element = document.createElement("p");
+  element.setAttribute(insertedTextAttribute, entry.insertionId);
+  element.textContent = entry.text;
+
+  if (entry.inlineStyle) {
+    element.setAttribute("style", entry.inlineStyle);
+  } else {
+    element.style.setProperty("position", "absolute", "important");
+    element.style.setProperty("margin", "0", "important");
+  }
+
+  if (entry.selectionId) element.setAttribute(selectionAttribute, entry.selectionId);
+  parent.appendChild(element);
+  return element;
+}
+
+function insertTextAtPoint(clientX, clientY, anchor) {
+  const parent = findCanvasInsertionParent();
+  if (!(parent instanceof Element)) return false;
+
+  finishTextEditing();
+  const entry = {
+    insertionId: `formia-text-${++insertedTextSequence}`,
+    element: null,
+    parent,
+    parentIdentity: elementIdentity(parent),
+    sourceContext: insertionSourceContext(anchor),
+    text: "New text",
+    inlineStyle: "",
+    selectionId: null,
+  };
+  const element = createInsertedTextNode(entry, parent);
+  const position = positionForPoint(element, clientX, clientY);
+  element.style.setProperty("left", `${position.left}px`, "important");
+  element.style.setProperty("top", `${position.top}px`, "important");
+  entry.element = element;
+  entry.inlineStyle = element.getAttribute("style") || "";
+  entry.left = position.left;
+  entry.top = position.top;
+  insertedTextElements.set(element, entry);
+
+  selectElement(element);
+  moveOverlay(element);
+  ipcRenderer.sendToHost("formia:element-selected", selectionPayload(element));
+  sendLayerTree();
+  beginTextEditing(element, true);
+  return true;
+}
+
 function rememberStructure(element) {
   if (structureSnapshots.has(element)) return structureSnapshots.get(element);
 
@@ -627,6 +763,12 @@ function moveElementTo(element, targetParent, beforeElement = null) {
 
   const snapshot = rememberStructure(element);
   targetParent.insertBefore(element, beforeElement);
+
+  const insertedText = insertedTextElements.get(element);
+  if (insertedText) {
+    insertedText.parent = targetParent;
+    insertedText.parentIdentity = elementIdentity(targetParent);
+  }
 
   if (isOriginalPlacement(element, snapshot)) {
     structuralMoves.delete(element);
@@ -717,6 +859,69 @@ function commitElementMove(element, target) {
   return true;
 }
 
+function beginTextPositionDrag(event, element) {
+  const computed = getComputedStyle(element);
+  const left = Number.parseFloat(element.style.getPropertyValue("left") || computed.left) || 0;
+  const top = Number.parseFloat(element.style.getPropertyValue("top") || computed.top) || 0;
+
+  textPositionDrag = {
+    element,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    initialLeft: left,
+    initialTop: top,
+    moved: false,
+  };
+  element.setPointerCapture?.(event.pointerId);
+}
+
+function moveTextPositionDrag(event) {
+  if (!textPositionDrag || event.pointerId !== textPositionDrag.pointerId) return false;
+
+  const drag = textPositionDrag;
+  const deltaX = event.clientX - drag.startX;
+  const deltaY = event.clientY - drag.startY;
+  if (!drag.moved && Math.hypot(deltaX, deltaY) < 5) return true;
+
+  if (!drag.moved) {
+    drag.moved = true;
+    suppressNextClick = true;
+    selectElement(drag.element);
+    rememberInlineStyle(drag.element, "left");
+    rememberInlineStyle(drag.element, "top");
+    ipcRenderer.sendToHost("formia:element-selected", selectionPayload(drag.element));
+  }
+
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  drag.element.style.setProperty("left", `${Math.round(drag.initialLeft + deltaX)}px`, "important");
+  drag.element.style.setProperty("top", `${Math.round(drag.initialTop + deltaY)}px`, "important");
+  const entry = insertedTextElements.get(drag.element);
+  if (entry) {
+    entry.inlineStyle = drag.element.getAttribute("style") || entry.inlineStyle;
+    entry.left = Math.round(drag.initialLeft + deltaX);
+    entry.top = Math.round(drag.initialTop + deltaY);
+  }
+  moveOverlay(drag.element);
+  return true;
+}
+
+function endTextPositionDrag(event) {
+  if (!textPositionDrag || event.pointerId !== textPositionDrag.pointerId) return false;
+
+  const drag = textPositionDrag;
+  textPositionDrag = null;
+  drag.element.releasePointerCapture?.(event.pointerId);
+  if (!drag.moved) return true;
+
+  if (event.type === "pointercancel") suppressNextClick = false;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  sendUpdatedSelection();
+  return true;
+}
+
 function clearLayerSelectionIds(element) {
   element.removeAttribute(selectionAttribute);
   element.querySelectorAll(`[${selectionAttribute}]`).forEach((child) => child.removeAttribute(selectionAttribute));
@@ -729,10 +934,12 @@ function deleteSelectedLayer() {
   const element = selectedElement;
   const snapshot = rememberStructure(element);
   const details = inspectElement(element);
+  const insertedText = insertedTextElements.get(element);
   const duplicated = duplicatedElements.get(element);
 
   structuralMoves.delete(element);
-  if (duplicated) duplicatedElements.delete(element);
+  if (insertedText) insertedTextElements.delete(element);
+  else if (duplicated) duplicatedElements.delete(element);
   else {
     deletedElements.set(element, {
       element,
@@ -898,12 +1105,18 @@ function resetText() {
 
 function resetAllOverrides() {
   finishTextEditing();
+  textPositionDrag = null;
   restoreStructuralOverrides();
 
   for (const { clone } of Array.from(duplicatedElements.values()).reverse()) {
     if (clone.isConnected) clone.remove();
   }
   duplicatedElements.clear();
+
+  for (const { element } of Array.from(insertedTextElements.values()).reverse()) {
+    if (element.isConnected) element.remove();
+  }
+  insertedTextElements.clear();
 
   for (const { element, originalParent, originalIndex } of Array.from(deletedElements.values()).reverse()) {
     if (!element.isConnected && originalParent?.isConnected) {
@@ -936,7 +1149,14 @@ function resetAllOverrides() {
   }
 
   touchedElements.clear();
-  sendUpdatedSelection();
+  if (selectedElement instanceof Element && selectedElement.isConnected) {
+    sendUpdatedSelection();
+  } else if (selectedElement) {
+    selectedElement = null;
+    selectedElementIdentity = null;
+    hideOverlay();
+    ipcRenderer.sendToHost("formia:selection-cleared");
+  }
   sendLayerTree();
   sendPreviewState();
 }
@@ -980,18 +1200,28 @@ function layerDetail(element) {
   return null;
 }
 
+function markInsertedLayerBranches(element, branches) {
+  let containsInsertedText = isInsertedTextLayer(element);
+  for (const child of element.children) {
+    if (markInsertedLayerBranches(child, branches)) containsInsertedText = true;
+  }
+  if (containsInsertedText) branches.add(element);
+  return containsInsertedText;
+}
+
 function buildLayerNode(element, state, depth = 0) {
-  if (state.count >= maximumLayerTreeNodes || layerTreeExcludedTags.has(element.tagName)) return null;
+  const isInsertedBranch = state.insertedLayerBranches.has(element);
+  if ((state.count >= maximumLayerTreeNodes && !isInsertedBranch) || layerTreeExcludedTags.has(element.tagName)) return null;
 
   const computed = getComputedStyle(element);
-  if (computed.display === "none" || computed.visibility === "hidden") return null;
+  if (!isInsertedBranch && (computed.display === "none" || computed.visibility === "hidden")) return null;
 
   state.count += 1;
-  const children = depth < maximumLayerTreeDepth
+  const children = depth < maximumLayerTreeDepth || isInsertedBranch
     ? Array.from(element.children).map((child) => buildLayerNode(child, state, depth + 1)).filter(Boolean)
     : [];
   const rect = element.getBoundingClientRect();
-  if (children.length === 0 && (rect.width <= 0 || rect.height <= 0)) return null;
+  if (!isInsertedBranch && children.length === 0 && (rect.width <= 0 || rect.height <= 0)) return null;
 
   const componentName = getReactComponentName(element);
   return {
@@ -1005,7 +1235,9 @@ function buildLayerNode(element, state, depth = 0) {
 
 function collectLayerTree() {
   if (!document.body) return [];
-  const state = { count: 0 };
+  const insertedLayerBranches = new Set();
+  for (const element of document.body.children) markInsertedLayerBranches(element, insertedLayerBranches);
+  const state = { count: 0, insertedLayerBranches };
   return Array.from(document.body.children)
     .map((element) => buildLayerNode(element, state))
     .filter(Boolean);
@@ -1088,9 +1320,14 @@ function findCanvasDropTarget(x, y, source) {
 }
 
 function beginCanvasLayerDrag(event) {
-  if (activeTool !== "select" || event.button !== 0 || layerPointerDrag) return;
+  if (activeTool !== "select" || event.button !== 0 || layerPointerDrag || textPositionDrag) return;
   const element = event.target;
   if (!(element instanceof Element) || element === overlay || isDocumentSurface(element) || layerTreeExcludedTags.has(element.tagName)) return;
+
+  if (insertedTextElements.has(element)) {
+    beginTextPositionDrag(event, element);
+    return;
+  }
 
   layerPointerDrag = {
     element,
@@ -1103,6 +1340,10 @@ function beginCanvasLayerDrag(event) {
 }
 
 function moveCanvasLayerDrag(event) {
+  if (textPositionDrag) {
+    moveTextPositionDrag(event);
+    return;
+  }
   if (!layerPointerDrag || event.pointerId !== layerPointerDrag.pointerId) return;
 
   const deltaX = event.clientX - layerPointerDrag.startX;
@@ -1124,6 +1365,10 @@ function moveCanvasLayerDrag(event) {
 }
 
 function endCanvasLayerDrag(event) {
+  if (textPositionDrag) {
+    endTextPositionDrag(event);
+    return;
+  }
   if (!layerPointerDrag || event.pointerId !== layerPointerDrag.pointerId) return;
 
   const drag = layerPointerDrag;
@@ -1203,7 +1448,7 @@ function inspectElement(element) {
     textEditable: isTextEditable(element),
     attributes: Object.fromEntries(
       Array.from(element.attributes)
-        .filter((attribute) => !["class", "id", selectionAttribute].includes(attribute.name))
+        .filter((attribute) => !["class", "id", selectionAttribute, insertedTextAttribute].includes(attribute.name))
         .map((attribute) => [attribute.name, attribute.value]),
     ),
     dimensions: {
@@ -1290,11 +1535,13 @@ function collectPreviewChanges() {
 
     if (changes.length === 0) return [];
     const details = inspectElement(element);
+    const insertedText = insertedTextElements.get(element);
     return [{
       selectionId: details.selectionId,
       tagName: details.tagName,
-      source: details.react?.source || null,
+      source: insertedText?.sourceContext?.source || details.react?.source || null,
       text: details.text,
+      insertionId: insertedText?.insertionId || null,
       changes,
     }];
   });
@@ -1334,7 +1581,44 @@ function collectStructuralPreviewChanges() {
     }];
   });
 
-  const moveChanges = Array.from(structuralMoves.values()).flatMap((move) => {
+  const insertedTextChanges = Array.from(insertedTextElements.values()).flatMap((entry) => {
+    const element = entry.element;
+    if (!(element instanceof Element) || !element.isConnected || !element.parentElement) return [];
+
+    const details = inspectElement(element);
+    entry.parent = element.parentElement;
+    entry.parentIdentity = elementIdentity(entry.parent);
+    const parentDetails = inspectElement(entry.parent);
+    const left = Number.parseFloat(details.styles.left) || entry.left || 0;
+    const top = Number.parseFloat(details.styles.top) || entry.top || 0;
+    return [{
+      selectionId: details.selectionId,
+      insertionId: entry.insertionId,
+      tagName: "p",
+      source: entry.sourceContext?.source || null,
+      text: details.text,
+      changes: [{
+        kind: "structure",
+        operation: "insert",
+        property: "layer",
+        from: "Text tool",
+        to: `p in ${layerDescription(entry.parent)} at (${Math.round(left)}, ${Math.round(top)})`,
+        elementType: "text",
+        elementTagName: "p",
+        content: details.text,
+        position: { left: Math.round(left), top: Math.round(top) },
+        sourceContext: entry.sourceContext,
+        previewParent: {
+          selectionId: parentDetails.selectionId,
+          tagName: parentDetails.tagName,
+          id: parentDetails.id,
+          source: parentDetails.react?.source || null,
+        },
+      }],
+    }];
+  });
+
+  const moveChanges = Array.from(structuralMoves.values()).filter((move) => !isInsertedTextLayer(move.element)).flatMap((move) => {
     if (!move.element.isConnected || !move.targetParent.isConnected) return [];
 
     const details = inspectElement(move.element);
@@ -1353,7 +1637,7 @@ function collectStructuralPreviewChanges() {
     }];
   });
 
-  return [...deletedChanges, ...duplicatedChanges, ...moveChanges];
+  return [...deletedChanges, ...duplicatedChanges, ...insertedTextChanges, ...moveChanges];
 }
 
 function sendPreviewState() {
@@ -1426,15 +1710,19 @@ window.addEventListener(
     event.preventDefault();
     event.stopImmediatePropagation();
     if (isSelectionBackground(element)) {
-      clearSelection();
+      if (activeTool === "text") insertTextAtPoint(event.clientX, event.clientY, null);
+      else clearSelection();
       return;
     }
     if (activeTool === "text") {
-      if (!isTextEditable(element)) return;
-      moveOverlay(element);
-      selectElement(element);
-      ipcRenderer.sendToHost("formia:element-selected", selectionPayload(element));
-      beginTextEditing(element);
+      if (isTextEditable(element)) {
+        moveOverlay(element);
+        selectElement(element);
+        ipcRenderer.sendToHost("formia:element-selected", selectionPayload(element));
+        beginTextEditing(element);
+      } else {
+        insertTextAtPoint(event.clientX, event.clientY, element);
+      }
       return;
     }
     moveOverlay(element);

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## [1.3.0] - 2026-09-15
+
+### Added
+
+- Added desktop text insertion that creates new `<p>` layers at the chosen canvas position and keeps them freely movable with the Select tool.
+- Added inserted text layers to the Layers panel, including structural reparenting support.
+
+### Changed
+
+- Separated the primary desktop editor shell from the intentionally limited browser demo.
+- Refined positioning inset controls with directional arrow icons and removed the non-editable anchor summary.
+
 ## [1.2.1] - 2026-09-13
 
 ### Fixed

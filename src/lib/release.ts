@@ -1,1 +1,1 @@
-export const windowsInstallerUrl = "https://github.com/ananyoshourjo/formia/releases/download/v1.2.1/Formia-1.2.1-Setup.exe";
+export const windowsInstallerUrl = "https://github.com/ananyoshourjo/formia/releases/download/v1.3.0/Formia-1.3.0-Setup.exe";

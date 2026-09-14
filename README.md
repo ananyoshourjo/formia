@@ -39,6 +39,10 @@ Preview changes are intentionally temporary. Use **Build → Reset design** to d
 
 Projects can be opened and edited visually when Codex is unavailable. Build becomes available after Formia confirms that Codex is ready.
 
+## Desktop first, web later
+
+The desktop app is the primary product and the place where new features are built and validated first. The browser demo is a separate, limited preview using a bundled example project. It does not open local projects, modify source files, or provide Build. Web-demo versions of desktop features are optional follow-up work, not a parity requirement.
+
 ## Safety and project boundary
 
 Formia is intended for projects you trust. It starts the selected project’s development server locally. When you press Build, Codex receives workspace-write access to that selected project so it can implement the requested change.

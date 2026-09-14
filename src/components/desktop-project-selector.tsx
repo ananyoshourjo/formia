@@ -1,12 +1,13 @@
 "use client";
 
+// Desktop-only project picker. The browser demo has its own launcher.
+
 import { useState, useSyncExternalStore } from "react";
-import { ArrowRightIcon, CircleNotchIcon, DownloadSimpleIcon, FolderOpenIcon, WarningCircleIcon, XIcon } from "@phosphor-icons/react";
+import { ArrowRightIcon, CircleNotchIcon, FolderOpenIcon, WarningCircleIcon, XIcon } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
 import { WindowControls } from "@/components/window-controls";
 import { desktopErrorMessage, type CodexAvailability, type Project, type RecentProject } from "@/lib/desktop-contracts";
-import { windowsInstallerUrl } from "@/lib/release";
 
 const recentProjectsKey = "formia:recent-projects";
 const recentProjectsEvent = "formia:recent-projects-changed";
@@ -66,9 +67,8 @@ function removeRecentProject(projectPath: string) {
   window.dispatchEvent(new Event(recentProjectsEvent));
 }
 
-export function ProjectSelector({ codexAvailability, onOpen }: { codexAvailability: CodexAvailability; onOpen: (project: Project) => void }) {
+export function DesktopProjectSelector({ codexAvailability, onOpen }: { codexAvailability: CodexAvailability; onOpen: (project: Project) => void }) {
   const recentProjects = useSyncExternalStore(subscribeToRecentProjects, readRecentProjects, () => emptyRecentProjects);
-  const isDesktop = useSyncExternalStore(() => () => undefined, () => Boolean(window.formiaDesktop), () => false);
   const [openingPath, setOpeningPath] = useState<string | null>(null);
   const [recentError, setRecentError] = useState<{ path: string; message: string } | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
@@ -110,34 +110,19 @@ export function ProjectSelector({ codexAvailability, onOpen }: { codexAvailabili
     }
   }
 
-  function openBuiltInDemo() {
-    onOpen({ name: "Shadcn Admin", path: null, url: "/demos/shadcn-admin" });
-  }
-
   return (
     <main className="min-h-screen bg-background text-foreground">
-      {isDesktop ? (
-        <header className="formia-titlebar flex h-10 shrink-0 border-b border-border bg-white">
-          <WindowControls />
-        </header>
-      ) : null}
-      <section className={`flex ${isDesktop ? "min-h-[calc(100vh-2.5rem)]" : "min-h-screen"} items-center justify-center px-6 py-12`} aria-labelledby="recent-projects-heading">
+      <header className="formia-titlebar flex h-10 shrink-0 border-b border-border bg-white">
+        <WindowControls />
+      </header>
+      <section className="flex min-h-[calc(100vh-2.5rem)] items-center justify-center px-6 py-12" aria-labelledby="recent-projects-heading">
         <div className="w-full max-w-xl">
           <div className="flex items-center justify-between gap-4">
             <h1 id="recent-projects-heading" className="text-xl font-medium tracking-tight">Recent projects</h1>
-            {isDesktop ? (
-              <Button type="button" size="sm" onClick={() => void selectProject()}>
-                <FolderOpenIcon />
-                Open project
-              </Button>
-            ) : (
-              <Button asChild size="sm">
-                <a href={windowsInstallerUrl}>
-                  <DownloadSimpleIcon />
-                  Download Formia to Open Local Project
-                </a>
-              </Button>
-            )}
+            <Button type="button" size="sm" onClick={() => void selectProject()}>
+              <FolderOpenIcon />
+              Open project
+            </Button>
           </div>
 
           {openError ? (
@@ -147,7 +132,7 @@ export function ProjectSelector({ codexAvailability, onOpen }: { codexAvailabili
             </p>
           ) : null}
 
-          {isDesktop && codexAvailability.state === "unavailable" ? (
+          {codexAvailability.state === "unavailable" ? (
             <div className="mt-4 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
               <p className="flex items-center gap-2 text-sm font-medium">
                 <WarningCircleIcon className="size-4 shrink-0 text-muted-foreground" />
@@ -157,18 +142,7 @@ export function ProjectSelector({ codexAvailability, onOpen }: { codexAvailabili
             </div>
           ) : null}
 
-          {!isDesktop ? (
-            <div className="mt-4 overflow-hidden rounded-xl border border-border">
-              <button
-                type="button"
-                className="flex min-h-12 w-full items-center gap-3 px-4 text-left text-sm outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50"
-                onClick={openBuiltInDemo}
-              >
-                <FolderOpenIcon className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate">Shadcn Admin</span>
-              </button>
-            </div>
-          ) : recentProjects.length > 0 ? (
+          {recentProjects.length > 0 ? (
             <div className="mt-4 overflow-hidden rounded-xl border border-border">
               {recentProjects.map((project, index) => {
                 const isOpening = openingPath === project.path;
