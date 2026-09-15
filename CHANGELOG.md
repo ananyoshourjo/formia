@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## [1.6.0] - 2026-09-15
+
+### Added
+
+- Added a desktop Div tool that inserts transparent, grey-bordered containers by clicking for a 100×100 starting size or dragging to draw an explicit size.
+- Added Select-tool support for moving existing elements into inserted Divs.
+- Added persistent layer ancestry expansion so selecting a nested element reveals it without collapsing previously opened branches.
+
+### Changed
+
+- Renamed the desktop Box insertion tool to Div and added a plus cursor while creating one.
+- Disabled native canvas selection and HTML dragging for editing tools while preserving them for Interact.
+
 ## [1.5.0] - 2026-09-15
 
 ### Added

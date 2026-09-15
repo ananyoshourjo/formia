@@ -31,7 +31,7 @@ app.whenReady().then(async () => {
     const canvas = webContents.fromId(canvasId);
     assert.ok(canvas, 'canvas webContents is available');
 
-    await hostEvaluate('document.querySelector("#canvas").send("formia:set-tool", "box")');
+    await hostEvaluate('document.querySelector("#canvas").send("formia:set-tool", "div")');
     await settle();
     input(canvas, 'mouseDown', 250, 250);
     input(canvas, 'mouseUp', 250, 250);

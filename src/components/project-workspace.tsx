@@ -63,6 +63,7 @@ type PreviewChange = {
     content?: string;
     position?: { left: number; top: number };
     size?: { width: number; height: number };
+    fitContents?: boolean;
     sourceContext?: unknown;
     previewParent?: unknown;
   }>;
@@ -88,7 +89,7 @@ const workspaceTools: Array<{ name: ToolName; label: string; shortcut: string; i
   { name: "interact", label: "Interact", shortcut: "I", icon: CursorIcon, weight: "regular" },
   { name: "select", label: "Select", shortcut: "S", icon: NavigationArrowIcon, weight: "regular" },
   { name: "text", label: "Text", shortcut: "T", icon: CursorTextIcon, weight: "regular" },
-  { name: "box", label: "Box", shortcut: "B", icon: RectangleIcon, weight: "regular" },
+  { name: "div", label: "Div", shortcut: "D", icon: RectangleIcon, weight: "regular" },
 ];
 
 type CanvasWheelInput = {
@@ -148,6 +149,31 @@ const inspectorTitleClass = `mb-2 ${inspectorHeadingClass}`;
 const inspectorLabelClass = "text-[12px] leading-4 font-normal text-muted-foreground";
 const inspectorFieldClass = "min-w-0 rounded-[5px] border border-border bg-background px-2 text-[14px] leading-4 text-foreground shadow-none";
 const scrubNumberPattern = /^(-?(?:\d+(?:\.\d*)?|\.\d+))([a-z%]*)$/i;
+
+function formatTooltipName(value: string) {
+  const normalized = value
+    .replace(/[-_]\d+$/, "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return "Control";
+
+  return normalized
+    .split(" ")
+    .map((word, index) => {
+      if (word === "x" || word === "y") return word.toUpperCase();
+      if (index === 0) return `${word.charAt(0).toUpperCase()}${word.slice(1)}`;
+      return word;
+    })
+    .join(" ");
+}
+
+function tooltipNameInSentence(value: string) {
+  const name = formatTooltipName(value);
+  return `${name.charAt(0).toLowerCase()}${name.slice(1)}`;
+}
 
 function numericScrubValue(value: string | undefined, allowUnit = false) {
   const match = value?.trim().match(scrubNumberPattern);
@@ -243,7 +269,7 @@ function NumericScrubLabel({ children, htmlFor, name, value, onScrub, step = 1, 
   const scrubClassName = scrub.canScrub ? "cursor-ew-resize select-none [&_svg]:cursor-ew-resize" : "";
 
   return (
-    <Hint content={scrub.canScrub ? `${name} — drag to adjust` : name}>
+    <Hint content={formatTooltipName(name)}>
       <label htmlFor={htmlFor} className={`${className || ""} ${scrubClassName}`} onPointerDown={scrub.handlePointerDown} onPointerUp={scrub.handlePointerEnd} onPointerCancel={scrub.handlePointerEnd}>
         {children}
       </label>
@@ -306,7 +332,7 @@ function PropertyGroup({ title, values }: { title: string; values: Record<string
       <dl className="space-y-1">
         {entries.map(([name, value]) => (
           <div key={name} className="space-y-1">
-            <Hint content={name}><dt className={`${inspectorLabelClass} truncate`}>{name}</dt></Hint>
+            <Hint content={formatTooltipName(name)}><dt className={`${inspectorLabelClass} truncate`}>{name}</dt></Hint>
             <dd className={`${inspectorFieldClass} min-h-7 whitespace-pre-wrap break-words py-1`}>
               {typeof value === "string" || typeof value === "number" ? String(value) : JSON.stringify(value, null, 2)}
             </dd>
@@ -578,13 +604,13 @@ function TypographyMetricField({
         className="h-4 min-w-0 w-full overflow-hidden text-ellipsis whitespace-nowrap appearance-none rounded-none border-0 bg-transparent p-0 pr-8 text-[14px] leading-4 font-normal tabular-nums shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[14px]"
         onChange={(event) => commitInput(event.currentTarget.value)}
       />
-      <Hint content={`Reset ${name}`}>
+      <Hint content={`Reset ${tooltipNameInSentence(name)}`}>
         <Button type="button" variant="ghost" size="icon-xs" className="absolute right-5 top-1/2 size-4 -translate-y-1/2 rounded bg-background p-0 text-muted-foreground opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100" onClick={onReset} aria-label={`Reset ${name}`}>
           <ArrowCounterClockwiseIcon className="size-3.5" />
         </Button>
       </Hint>
       <DropdownMenu>
-        <Hint content={`Unit: ${selectedUnitLabel}`}>
+        <Hint content={`Unit: ${formatTooltipName(selectedUnitLabel)}`}>
           <DropdownMenuTrigger asChild>
             <Button type="button" variant="ghost" size="icon-xs" className="absolute right-0.5 top-1/2 size-4 -translate-y-1/2 rounded p-0 text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/10" aria-label={`Choose ${name} unit`}>
               <CaretDownIcon className="size-3" />
@@ -675,7 +701,7 @@ function TypographyIconSegmentedField({ label, name, value, options, onChange }:
       <LayoutLabel>{label}</LayoutLabel>
       <div className={layoutControlSurface} style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }} role="group" aria-label={name}>
         {options.map((option) => (
-          <Hint key={option.value} content={option.label}>
+          <Hint key={option.value} content={formatTooltipName(option.label)}>
             <Button type="button" variant="ghost" size="icon-xs" className={layoutControlButton} onClick={() => onChange(option.value)} aria-label={option.label} aria-pressed={value === option.value}>
               <HugeiconsIcon icon={option.icon} size={15} strokeWidth={1.8} />
             </Button>
@@ -860,7 +886,7 @@ function displayedColorHexValue(value: string | undefined) {
 function ColorField({ label, name, property, value, onApplyStyle, onResetStyle }: { label: string; name: string; property: string; value: string | undefined; onApplyStyle: (property: string, value: string) => void; onResetStyle: (property: string) => void }) {
   return (
     <div className="space-y-1">
-      <Hint content={`Edit ${name} color`}>
+      <Hint content={`Edit ${tooltipNameInSentence(name)} color`}>
         <label htmlFor={`color-${property}`} className={inspectorLabelClass}>{label}</label>
       </Hint>
       <div className="group relative flex h-7 min-w-0 items-center gap-1 rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5">
@@ -873,7 +899,7 @@ function ColorField({ label, name, property, value, onApplyStyle, onResetStyle }
           className="h-4 min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded-none border-0 bg-transparent p-0 pr-6 text-[12px] leading-4 font-normal shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[12px]"
           onChange={(event) => onApplyStyle(property, event.currentTarget.value)}
         />
-        <Hint content={`Reset ${name} color`}>
+        <Hint content={`Reset ${tooltipNameInSentence(name)} color`}>
           <Button type="button" variant="ghost" size="icon-xs" className="absolute right-1 top-1/2 size-4 -translate-y-1/2 rounded bg-background p-0 text-muted-foreground opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100" onClick={() => onResetStyle(property)} aria-label={`Reset ${name} color`}>
             <ArrowCounterClockwiseIcon className="size-3.5" />
           </Button>
@@ -914,7 +940,7 @@ const borderRadiusUnits = [...borderUnits, { value: "%", label: "Percent" }] as 
 function BorderStyleField({ value, onChange, onReset }: { value: string | undefined; onChange: (value: string) => void; onReset: () => void }) {
   return (
     <div className="space-y-1">
-      <Hint content="border-style"><label htmlFor="border-style" className={inspectorLabelClass}>Style</label></Hint>
+      <Hint content="Border style"><label htmlFor="border-style" className={inspectorLabelClass}>Style</label></Hint>
       <div className="group relative flex h-7 min-w-0 items-center rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5">
         <Select value={value || "none"} onValueChange={onChange}>
           <SelectTrigger id="border-style" size="sm" aria-label="Edit border style" className="h-7 min-w-0 w-full items-center justify-start gap-1 rounded-none border-0 bg-transparent p-0 pr-8 text-[14px] leading-none font-normal text-foreground shadow-none focus-visible:ring-0 [&>svg]:hidden">
@@ -979,7 +1005,7 @@ function CompactLayoutField({
     <>
       <Input id={`layout-${name}`} value={value} aria-label={`Edit ${name}`} className={`h-4 min-w-0 w-full overflow-hidden text-ellipsis whitespace-nowrap appearance-none rounded-none border-0 bg-transparent p-0 ${suffix ? "pr-7" : "pr-5"} text-[14px] leading-4 font-normal tabular-nums shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[14px]`} onChange={(event) => onCommit(event.currentTarget.value)} />
       {suffix ? <span className="-ml-1 text-[14px] leading-4 text-muted-foreground">{suffix}</span> : null}
-      <Hint content={`Reset ${name}`}>
+      <Hint content={`Reset ${tooltipNameInSentence(name)}`}>
         <Button type="button" variant="ghost" size="icon-xs" className={`pointer-events-none absolute top-1/2 size-4 -translate-y-1/2 rounded bg-background p-0 text-muted-foreground opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 ${suffix ? "right-5" : "right-1"}`} onClick={onReset} aria-label={`Reset ${name}`}>
           <ArrowCounterClockwiseIcon className="size-3.5" />
         </Button>
@@ -990,7 +1016,7 @@ function CompactLayoutField({
   if (!isInline) {
     return (
       <div className="space-y-1">
-        {scrubbable === false ? <Hint content={name}><label htmlFor={`layout-${name}`} className={inspectorLabelClass}>{label}</label></Hint> : <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={value} onScrub={onCommit} className={inspectorLabelClass}>{label}</NumericScrubLabel>}
+        {scrubbable === false ? <Hint content={formatTooltipName(name)}><label htmlFor={`layout-${name}`} className={inspectorLabelClass}>{label}</label></Hint> : <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={value} onScrub={onCommit} className={inspectorLabelClass}>{label}</NumericScrubLabel>}
         <div className="group relative flex h-7 min-w-0 items-center rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5">
           {controlContents}
         </div>
@@ -1000,7 +1026,7 @@ function CompactLayoutField({
 
   return (
     <div className={`group relative grid h-7 min-w-0 items-center rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5 ${wideLabel ? "grid-cols-[1.75rem_minmax(0,1fr)_auto]" : "grid-cols-[0.875rem_minmax(0,1fr)_auto] gap-x-2"}`}>
-      {scrubbable === false ? <Hint content={name}><label htmlFor={`layout-${name}`} className={`${wideLabel ? "text-left" : "grid size-3.5 place-items-center"} text-[14px] leading-none font-normal text-muted-foreground [&>svg]:block`}>{label}</label></Hint> : <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={value} onScrub={onCommit} className={`${wideLabel ? "text-left" : "grid size-3.5 place-items-center"} text-[14px] leading-none font-normal text-muted-foreground [&>svg]:block`}>{label}</NumericScrubLabel>}
+      {scrubbable === false ? <Hint content={formatTooltipName(name)}><label htmlFor={`layout-${name}`} className={`${wideLabel ? "text-left" : "grid size-3.5 place-items-center"} text-[14px] leading-none font-normal text-muted-foreground [&>svg]:block`}>{label}</label></Hint> : <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={value} onScrub={onCommit} className={`${wideLabel ? "text-left" : "grid size-3.5 place-items-center"} text-[14px] leading-none font-normal text-muted-foreground [&>svg]:block`}>{label}</NumericScrubLabel>}
       {controlContents}
     </div>
   );
@@ -1022,15 +1048,15 @@ function GridPlacementField({ label, name, value, onCommit, onReset }: { label: 
   return (
     <DropdownMenu>
       <div className="space-y-1">
-        <Hint content={label}><label htmlFor={`layout-${name}`} className={inspectorLabelClass}>{label}</label></Hint>
+        <Hint content={formatTooltipName(label)}><label htmlFor={`layout-${name}`} className={inspectorLabelClass}>{label}</label></Hint>
         <div className="group relative flex h-7 min-w-0 items-center rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5">
           <Input id={`layout-${name}`} value={value} aria-label={`Edit ${name}`} className="h-4 min-w-0 w-full overflow-hidden text-ellipsis whitespace-nowrap appearance-none rounded-none border-0 bg-transparent p-0 pr-8 text-[14px] leading-4 font-normal tabular-nums shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[14px]" onChange={(event) => onCommit(event.currentTarget.value)} />
-          <Hint content={`Reset ${name}`}>
+          <Hint content={`Reset ${tooltipNameInSentence(name)}`}>
             <Button type="button" variant="ghost" size="icon-xs" className="absolute right-5 top-1/2 size-4 -translate-y-1/2 rounded bg-background p-0 text-muted-foreground opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100" onClick={onReset} aria-label={`Reset ${name}`}>
               <ArrowCounterClockwiseIcon className="size-3.5" />
             </Button>
           </Hint>
-          <Hint content={`Choose ${name} value`}>
+          <Hint content={`Choose ${tooltipNameInSentence(name)} value`}>
             <DropdownMenuTrigger asChild>
               <Button type="button" variant="ghost" size="icon-xs" className="absolute right-0.5 top-1/2 size-4 -translate-y-1/2 rounded p-0 text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/10" aria-label={`Choose ${name} value`}>
                 <CaretDownIcon className="size-3" />
@@ -1157,7 +1183,7 @@ function SizingLayoutField({
   const field = (
     <DropdownMenu>
       <div className={`group relative min-w-0 rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5 ${isInline ? `grid h-7 items-center ${compactLabel ? "grid-cols-[0.875rem_minmax(0,1fr)] gap-x-2" : "grid-cols-[1.75rem_minmax(0,1fr)]"}` : "flex h-7 items-center gap-2"}`}>
-        {isInline ? (scrubbable === false ? <Hint content={String(label)}><label htmlFor={`layout-${name}`} className={`${compactLabel ? "grid size-3.5 place-items-center [&>svg]:block" : ""} text-[14px] leading-4 font-normal text-muted-foreground`}>{label}</label></Hint> : <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={parsed.inputValue} onScrub={(nextValue) => onCommit(nextValue, parsed.unit)} allowUnit className={`${compactLabel ? "grid size-3.5 place-items-center [&>svg]:block" : ""} text-[14px] leading-4 font-normal text-muted-foreground`}>{label}</NumericScrubLabel>) : icon ? <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={parsed.inputValue} onScrub={(nextValue) => onCommit(nextValue, parsed.unit)} allowUnit className="grid size-3.5 shrink-0 place-items-center text-muted-foreground [&>svg]:block">{icon}</NumericScrubLabel> : null}
+        {isInline ? (scrubbable === false ? <Hint content={formatTooltipName(String(label))}><label htmlFor={`layout-${name}`} className={`${compactLabel ? "grid size-3.5 place-items-center [&>svg]:block" : ""} text-[14px] leading-4 font-normal text-muted-foreground`}>{label}</label></Hint> : <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={parsed.inputValue} onScrub={(nextValue) => onCommit(nextValue, parsed.unit)} allowUnit className={`${compactLabel ? "grid size-3.5 place-items-center [&>svg]:block" : ""} text-[14px] leading-4 font-normal text-muted-foreground`}>{label}</NumericScrubLabel>) : icon ? <NumericScrubLabel htmlFor={`layout-${name}`} name={name} value={parsed.inputValue} onScrub={(nextValue) => onCommit(nextValue, parsed.unit)} allowUnit className="grid size-3.5 shrink-0 place-items-center text-muted-foreground [&>svg]:block">{icon}</NumericScrubLabel> : null}
         <Input
           id={`layout-${name}`}
           value={parsed.inputValue}
@@ -1165,12 +1191,12 @@ function SizingLayoutField({
           className="h-4 min-w-0 w-full overflow-hidden text-ellipsis whitespace-nowrap appearance-none rounded-none border-0 bg-transparent p-0 pr-8 text-[14px] leading-4 font-normal tabular-nums shadow-none focus:overflow-x-auto focus:text-clip focus-visible:ring-0 md:text-[14px]"
           onChange={(event) => onCommit(event.currentTarget.value, parsed.unit)}
         />
-        <Hint content={`Reset ${name}`}>
+        <Hint content={`Reset ${tooltipNameInSentence(name)}`}>
           <Button type="button" variant="ghost" size="icon-xs" className="absolute right-5 top-1/2 size-4 -translate-y-1/2 rounded bg-background p-0 text-muted-foreground opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100" onClick={onReset} aria-label={`Reset ${name}`}>
             <ArrowCounterClockwiseIcon className="size-3.5" />
           </Button>
         </Hint>
-        <Hint content={`Unit: ${selectedUnitLabel}`}>
+        <Hint content={`Unit: ${formatTooltipName(selectedUnitLabel)}`}>
           <DropdownMenuTrigger asChild>
             <Button type="button" variant="ghost" size="icon-xs" className="absolute right-0.5 top-1/2 size-4 -translate-y-1/2 rounded p-0 text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/10" aria-label={`Choose ${name} unit`}>
               <CaretDownIcon className="size-3" />
@@ -1199,7 +1225,7 @@ function SizingLayoutField({
   if (!isInline && !hideLabel) {
     return (
       <div className="space-y-1">
-        <Hint content={String(label)}><label htmlFor={`layout-${name}`} className={inspectorLabelClass}>{label}</label></Hint>
+        <Hint content={formatTooltipName(String(label))}><label htmlFor={`layout-${name}`} className={inspectorLabelClass}>{label}</label></Hint>
         {field}
       </div>
     );
@@ -1223,7 +1249,7 @@ function LayoutSelectField({
 }) {
   return (
     <div className="space-y-1">
-      <Hint content={name}><label className={inspectorLabelClass}>{label}</label></Hint>
+      <Hint content={formatTooltipName(name)}><label className={inspectorLabelClass}>{label}</label></Hint>
       <Select value={value || options[0]?.value} onValueChange={onChange}>
         <SelectTrigger aria-label={`Edit ${name}`} className={`${inspectorFieldClass} h-7 w-full px-2 font-normal hover:bg-muted/30 focus-visible:ring-1 focus-visible:ring-foreground/5`}>
           <SelectValue />
@@ -1243,7 +1269,7 @@ function LayoutLabel({ children }: { children: React.ReactNode }) {
 function CompactLayoutSelectField({ label, name, value, options, onChange }: { label: React.ReactNode; name: string; value: string | undefined; options: readonly { value: string; label: string }[]; onChange: (value: string) => void }) {
   return (
     <div className="group relative grid h-7 min-w-0 grid-cols-[0.875rem_minmax(0,1fr)] items-center gap-x-2 rounded-[5px] border border-border bg-background px-2 shadow-none transition-colors hover:bg-muted/30 focus-within:border-border focus-within:bg-muted/25 focus-within:shadow-none focus-within:ring-1 focus-within:ring-foreground/5">
-      <Hint content={name}><span className="grid size-3.5 place-items-center text-[14px] leading-none font-normal text-muted-foreground [&>svg]:block">{label}</span></Hint>
+      <Hint content={formatTooltipName(name)}><span className="grid size-3.5 place-items-center text-[14px] leading-none font-normal text-muted-foreground [&>svg]:block">{label}</span></Hint>
       <Select value={value || options[0]?.value} onValueChange={onChange}>
         <SelectTrigger size="sm" aria-label={`Edit ${name}`} className="h-7 min-w-0 w-full items-center justify-start gap-1 rounded-none border-0 bg-transparent p-0 pr-5 text-[14px] leading-none font-normal text-foreground shadow-none focus-visible:ring-0 [&>svg]:hidden">
           <SelectValue />
@@ -1415,7 +1441,7 @@ function OverflowField({ value, onChange }: { value: string; onChange: (value: s
       <LayoutLabel>Overflow</LayoutLabel>
       <div className={layoutControlSurface} role="group" aria-label="Overflow">
         {overflowOptions.map(({ value: optionValue, label, icon: Icon }) => (
-          <Hint key={optionValue} content={label}>
+          <Hint key={optionValue} content={formatTooltipName(label)}>
             <Button type="button" variant="ghost" size="icon-xs" className={layoutControlButton} onClick={() => onChange(optionValue)} aria-label={`Overflow ${label}`} aria-pressed={value === optionValue}>
               <Icon className="size-3.5" aria-hidden="true" />
             </Button>
@@ -1432,7 +1458,7 @@ function PositioningField({ value, onChange }: { value: string; onChange: (value
       <LayoutLabel>Positioning</LayoutLabel>
       <div className={layoutControlSurface} role="group" aria-label="Positioning">
         {positioningOptions.map(({ value: optionValue, label, icon: Icon }) => (
-          <Hint key={optionValue} content={label}>
+          <Hint key={optionValue} content={formatTooltipName(label)}>
             <Button type="button" variant="ghost" size="icon-xs" className={layoutControlButton} onClick={() => onChange(optionValue)} aria-label={`Positioning ${label}`} aria-pressed={value === optionValue}>
               <Icon className="size-3.5" aria-hidden="true" />
             </Button>
@@ -2194,6 +2220,7 @@ function LayerPanel({
   canvasUrl,
   layerTree,
   selection,
+  autoExpandedIds,
   onSelectLayer,
   onHighlightLayer,
   onClearLayerHighlight,
@@ -2203,6 +2230,7 @@ function LayerPanel({
   canvasUrl: string | null;
   layerTree: LayerNode[];
   selection: SelectedElement | null;
+  autoExpandedIds: Set<string>;
   onSelectLayer: (selectionId: string) => void;
   onHighlightLayer: (selectionId: string) => void;
   onClearLayerHighlight: () => void;
@@ -2211,12 +2239,17 @@ function LayerPanel({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [collapsedBySelection, setCollapsedBySelection] = useState<{ selectionId: string | null; ids: Set<string> }>(() => ({ selectionId: null, ids: new Set() }));
   const [collapsedInsertedBoxIds, setCollapsedInsertedBoxIds] = useState<Set<string>>(() => new Set());
+  const [collapsedAutoExpandedIds, setCollapsedAutoExpandedIds] = useState<Set<string>>(() => new Set());
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<LayerDropTarget | null>(null);
   const selectedId = selection?.selectionId || null;
   const selectedAncestorIds = selectedId ? findLayerAncestorIds(layerTree, selectedId) : null;
   const selectedCollapsedIds = collapsedBySelection.selectionId === selectedId ? collapsedBySelection.ids : new Set<string>();
+
   const visibleExpandedIds = new Set(expandedIds);
+  for (const selectionId of autoExpandedIds) {
+    if (!collapsedAutoExpandedIds.has(selectionId)) visibleExpandedIds.add(selectionId);
+  }
   for (const selectionId of selectedAncestorIds || []) {
     if (!selectedCollapsedIds.has(selectionId)) visibleExpandedIds.add(selectionId);
   }
@@ -2260,9 +2293,18 @@ function LayerPanel({
       return;
     }
 
+    const isExpanded = visibleExpandedIds.has(selectionId);
+    setCollapsedAutoExpandedIds((current) => {
+      if (!autoExpandedIds.has(selectionId)) return current;
+      const next = new Set(current);
+      if (isExpanded) next.add(selectionId);
+      else next.delete(selectionId);
+      if (next.size === current.size) return current;
+      return next;
+    });
     setExpandedIds((current) => {
       const next = new Set(current);
-      if (next.has(selectionId)) next.delete(selectionId);
+      if (isExpanded) next.delete(selectionId);
       else next.add(selectionId);
       return next;
     });
@@ -2272,10 +2314,12 @@ function LayerPanel({
     setExpandedIds(collectExpandableLayerIds(layerTree));
     setCollapsedInsertedBoxIds(new Set());
     setCollapsedBySelection({ selectionId: selectedId, ids: new Set() });
+    setCollapsedAutoExpandedIds(new Set());
   }
 
   function collapseAllLayers() {
     setExpandedIds(new Set());
+    setCollapsedAutoExpandedIds(new Set(autoExpandedIds));
     setCollapsedInsertedBoxIds(new Set(insertedBoxChildCounts.keys()));
     setCollapsedBySelection({ selectionId: selectedId, ids: new Set(selectedAncestorIds || []) });
   }
@@ -2403,8 +2447,8 @@ function WorkspaceToolbar({
 }) {
   return (
     <aside className={`flex h-full w-11 shrink-0 flex-col items-center border-r border-border bg-white pt-2 ${className || ""}`} aria-label="Workspace tools">
-      {workspaceTools.filter(({ name }) => isDesktop || name !== "box").map(({ name, label, shortcut, icon: Icon, weight }) => (
-        <Hint key={name} content={`${label} (${shortcut})`}>
+      {workspaceTools.filter(({ name }) => isDesktop || name !== "div").map(({ name, label, shortcut, icon: Icon, weight }) => (
+        <Hint key={name} content={`${formatTooltipName(label)} (${shortcut})`}>
           <Button
             type="button"
             variant="ghost"
@@ -2683,6 +2727,7 @@ export function ProjectWorkspace({
   const [selection, setSelection] = useState<SelectedElement | null>(null);
   const [stagedPreviewChanges, setStagedPreviewChanges] = useState<PreviewChange[]>([]);
   const [layerTree, setLayerTree] = useState<LayerNode[]>([]);
+  const [autoExpandedLayerIds, setAutoExpandedLayerIds] = useState<Set<string>>(() => new Set());
   const [canvasBackground, setCanvasBackground] = useState("#F5F5F5");
   const [sidebarsVisible, setSidebarsVisible] = useState(true);
   const [canGoBack, setCanGoBack] = useState(false);
@@ -2709,7 +2754,21 @@ export function ProjectWorkspace({
   const activeToolRef = useRef<ToolName>("interact");
   const shortcutHandlerRef = useRef<(input: WorkspaceShortcutInput) => void>(() => {});
   const handleWebviewWheelRef = useRef(handleWebviewWheel);
+  const layerTreeRef = useRef<LayerNode[]>([]);
+  const selectedLayerIdRef = useRef<string | null>(null);
   handleWebviewWheelRef.current = handleWebviewWheel;
+
+  const revealSelectedLayerAncestors = useCallback((selectionId: string | null) => {
+    if (!selectionId) return;
+    const ancestorIds = findLayerAncestorIds(layerTreeRef.current, selectionId);
+    if (!ancestorIds || ancestorIds.size === 0) return;
+
+    setAutoExpandedLayerIds((current) => {
+      const next = new Set(current);
+      for (const ancestorId of ancestorIds) next.add(ancestorId);
+      return next.size === current.size ? current : next;
+    });
+  }, []);
 
   const updateArtboardHeight = useCallback((nextHeight: number) => {
     const previousHeight = artboardHeightRef.current;
@@ -2791,13 +2850,21 @@ export function ProjectWorkspace({
       }
       if (message.channel === "formia:layer-tree") {
         const payload = message.args[0];
-        if (isLayerTreePayload(payload)) setLayerTree(payload.nodes as LayerNode[]);
+        if (isLayerTreePayload(payload)) {
+          const nextLayerTree = payload.nodes as LayerNode[];
+          layerTreeRef.current = nextLayerTree;
+          setLayerTree(nextLayerTree);
+          revealSelectedLayerAncestors(selectedLayerIdRef.current);
+        }
         return;
       }
       if (message.channel === "formia:element-selected" || message.channel === "formia:element-updated") {
         const nextSelection = message.args[0];
         if (!isSelectionPayload(nextSelection)) return;
-        setSelection(nextSelection as SelectedElement);
+        const next = nextSelection as SelectedElement;
+        selectedLayerIdRef.current = next.selectionId;
+        setSelection(next);
+        revealSelectedLayerAncestors(next.selectionId);
         setStagedPreviewChanges(Array.isArray(nextSelection.previewChanges) ? nextSelection.previewChanges as PreviewChange[] : []);
         return;
       }
@@ -2807,6 +2874,7 @@ export function ProjectWorkspace({
         return;
       }
       if (message.channel === "formia:selection-cleared") {
+        selectedLayerIdRef.current = null;
         setSelection(null);
         setStagedPreviewChanges([]);
       }
@@ -2838,7 +2906,7 @@ export function ProjectWorkspace({
       if (webviewRef.current === webview) webviewRef.current = null;
       webview.remove();
     };
-  }, [active, canvasKey, canvasUrl, isDesktop, projectPath, updateArtboardHeight]);
+  }, [active, canvasKey, canvasUrl, isDesktop, projectPath, revealSelectedLayerAncestors, updateArtboardHeight]);
 
   useEffect(() => {
     if (isDesktop || !active || !projectUrl) return;
@@ -2848,9 +2916,12 @@ export function ProjectWorkspace({
       if (cancelled) return;
       setCanvasUrl(projectUrl);
       setProjectServerStatus({ state: "ready", url: projectUrl, message: "" });
+      selectedLayerIdRef.current = null;
+      layerTreeRef.current = [];
       setSelection(null);
       setStagedPreviewChanges([]);
       setLayerTree([]);
+      setAutoExpandedLayerIds(new Set());
       setCanvasKey((key) => key + 1);
     });
 
@@ -2875,13 +2946,21 @@ export function ProjectWorkspace({
       }
       if (message.channel === "formia:layer-tree") {
         const payload = message.args?.[0];
-        if (isLayerTreePayload(payload)) setLayerTree(payload.nodes as LayerNode[]);
+        if (isLayerTreePayload(payload)) {
+          const nextLayerTree = payload.nodes as LayerNode[];
+          layerTreeRef.current = nextLayerTree;
+          setLayerTree(nextLayerTree);
+          revealSelectedLayerAncestors(selectedLayerIdRef.current);
+        }
         return;
       }
       if (message.channel === "formia:element-selected" || message.channel === "formia:element-updated") {
         const nextSelection = message.args?.[0];
         if (!isSelectionPayload(nextSelection)) return;
-        setSelection(nextSelection as SelectedElement);
+        const next = nextSelection as SelectedElement;
+        selectedLayerIdRef.current = next.selectionId;
+        setSelection(next);
+        revealSelectedLayerAncestors(next.selectionId);
         setStagedPreviewChanges(Array.isArray(nextSelection.previewChanges) ? nextSelection.previewChanges as PreviewChange[] : []);
         return;
       }
@@ -2891,6 +2970,7 @@ export function ProjectWorkspace({
         return;
       }
       if (message.channel === "formia:selection-cleared") {
+        selectedLayerIdRef.current = null;
         setSelection(null);
         setStagedPreviewChanges([]);
       }
@@ -2898,15 +2978,19 @@ export function ProjectWorkspace({
 
     window.addEventListener("message", receiveOnlineMessage);
     return () => window.removeEventListener("message", receiveOnlineMessage);
-  }, [isDesktop]);
+  }, [isDesktop, revealSelectedLayerAncestors]);
 
   useEffect(() => {
     const unsubscribe = window.formiaDesktop?.onCodexStatus((status) => {
       setCodexStatus({ state: status.state, message: status.message });
       if (status.state === "applied") {
         sendCanvasMessage("formia:reset-overrides");
+        selectedLayerIdRef.current = null;
+        layerTreeRef.current = [];
         setSelection(null);
         setStagedPreviewChanges([]);
+        setLayerTree([]);
+        setAutoExpandedLayerIds(new Set());
         setCanvasKey((key) => key + 1);
       }
     });
@@ -2920,15 +3004,22 @@ export function ProjectWorkspace({
       setProjectServerStatus(status);
       if (status.state === "starting") {
         setCanvasUrl(null);
+        selectedLayerIdRef.current = null;
+        layerTreeRef.current = [];
         setSelection(null);
         setStagedPreviewChanges([]);
         setLayerTree([]);
+        setAutoExpandedLayerIds(new Set());
       }
       if (status.url) {
         setCanvasUrl(status.url);
         setCanvasKey((key) => key + 1);
+        selectedLayerIdRef.current = null;
+        layerTreeRef.current = [];
         setSelection(null);
         setStagedPreviewChanges([]);
+        setLayerTree([]);
+        setAutoExpandedLayerIds(new Set());
       }
       if (status.state === "failed") setCanvasUrl(null);
     };
@@ -3190,9 +3281,9 @@ export function ProjectWorkspace({
       selectTool("text");
       return;
     }
-    if (input.code === "KeyB" && isDesktop) {
+    if (input.code === "KeyD" && isDesktop && !hasModifier) {
       input.preventDefault?.();
-      selectTool("box");
+      selectTool("div");
       return;
     }
     if (input.code === "Digit0" || input.code === "Numpad0") {
@@ -3237,9 +3328,12 @@ export function ProjectWorkspace({
   }
 
   function refreshApp() {
+    selectedLayerIdRef.current = null;
+    layerTreeRef.current = [];
     setSelection(null);
     setStagedPreviewChanges([]);
     setLayerTree([]);
+    setAutoExpandedLayerIds(new Set());
     setArtboardHeight(minimumArtboardHeight);
     if (webviewRef.current) {
       webviewRef.current.reload();
@@ -3270,6 +3364,7 @@ export function ProjectWorkspace({
   }
 
   function clearCanvasSelection() {
+    selectedLayerIdRef.current = null;
     setSelection(null);
     setStagedPreviewChanges([]);
     sendCanvasMessage("formia:clear-selection");
@@ -3309,9 +3404,12 @@ export function ProjectWorkspace({
   async function restartProjectServer() {
     if (!projectPath || !window.formiaDesktop) return;
 
+    selectedLayerIdRef.current = null;
+    layerTreeRef.current = [];
     setSelection(null);
     setStagedPreviewChanges([]);
     setLayerTree([]);
+    setAutoExpandedLayerIds(new Set());
     try {
       setServerDiagnosticsCopied(false);
       await window.formiaDesktop.restartProjectServer();
@@ -3389,6 +3487,7 @@ export function ProjectWorkspace({
           canvasUrl={canvasUrl}
           layerTree={layerTree}
           selection={selection}
+          autoExpandedIds={autoExpandedLayerIds}
           onSelectLayer={selectLayer}
           onHighlightLayer={highlightLayer}
           onClearLayerHighlight={clearLayerHighlight}

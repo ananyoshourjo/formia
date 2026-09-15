@@ -161,6 +161,7 @@ let isReapplyingStructuralMoves = false;
 let isRebindingPreviewOverrides = false;
 let layerPointerDrag = null;
 let textPositionDrag = null;
+let divInsertionDrag = null;
 let suppressNextClick = false;
 let canvasDropTarget = null;
 
@@ -168,19 +169,22 @@ const toolCursorPaths = {
   interact: "M220.49,207.8,207.8,220.49a12,12,0,0,1-17,0l-56.57-56.57L115,214.08l-.13.33A15.84,15.84,0,0,1,100.26,224l-.78,0a15.82,15.82,0,0,1-14.41-11L32.8,52.92A15.95,15.95,0,0,1,52.92,32.8L213,85.07a16,16,0,0,1,1.41,29.8l-.33.13-50.16,19.27,56.57,56.56A12,12,0,0,1,220.49,207.8Z",
   select: "M248,121.58a15.76,15.76,0,0,1-11.29,15l-.2.06-78,21.84-21.84,78-.06.2a15.77,15.77,0,0,1-15,11.29h-.3a15.77,15.77,0,0,1-15.07-10.67L41,61.41a1,1,0,0,1-.05-.16A16,16,0,0,1,61.25,40.9l.16.05,175.92,65.26A15.78,15.78,0,0,1,248,121.58Z",
   text: "M184,208a8,8,0,0,1-8,8H160a40,40,0,0,1-32-16,40,40,0,0,1-32,16H80a8,8,0,0,1,0-16H96a24,24,0,0,0,24-24V136H104a8,8,0,0,1,0-16h16V80A24,24,0,0,0,96,56H80a8,8,0,0,1,0-16H96a40,40,0,0,1,32,16,40,40,0,0,1,32-16h16a8,8,0,0,1,0,16H160a24,24,0,0,0-24,24v40h16a8,8,0,0,1,0,16H136v40a24,24,0,0,0,24,24h16A8,8,0,0,1,184,208Z",
-  box: "M216,32H40A8,8,0,0,0,32,40V216A8,8,0,0,0,40,224H216A8,8,0,0,0,224,216V40A8,8,0,0,0,216,32Zm-8,176H48V48H208Z",
+  div: "M216,120H136V40a8,8,0,0,0-16,0v80H40a8,8,0,0,0,0,16h80v80a8,8,0,0,0,16,0V136h80a8,8,0,0,0,0-16Z",
 };
 
 const cursorStyle = document.createElement("style");
 
 function cursorForTool(tool) {
-  const hotspot = tool === "text" ? "8 8" : "2 2";
+  const hotspot = tool === "text" || tool === "div" ? "8 8" : "2 2";
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 256 256"><path fill="#0d0d0d" d="${toolCursorPaths[tool]}"/></svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${hotspot}, auto`;
 }
 
 function installCursorStyle() {
-  cursorStyle.textContent = `html, body, body * { cursor: ${cursorForTool(activeTool)} !important; }`;
+  const selectionStyle = activeTool === "interact"
+    ? ""
+    : "html, body, body * { user-select: none !important; -webkit-user-select: none !important; } html [contenteditable=\"true\"] { user-select: text !important; -webkit-user-select: text !important; }";
+  cursorStyle.textContent = `html, body, body * { cursor: ${cursorForTool(activeTool)} !important; } ${selectionStyle}`;
   if (!cursorStyle.isConnected && document.documentElement) document.documentElement.appendChild(cursorStyle);
 }
 
@@ -782,6 +786,7 @@ function measuredBoxChildBounds(box, boxRect, borderRight, borderBottom) {
 function syncInsertedBoxSize(element) {
   const entry = insertedBoxElements.get(element);
   if (!(element instanceof Element) || !entry) return;
+  if (!entry.fitContents) return;
 
   if (element.children.length === 0) {
     element.style.setProperty("width", "100px", "important");
@@ -839,8 +844,8 @@ function createInsertedBoxNode(entry, parent) {
     element.setAttribute("style", entry.inlineStyle);
   } else {
     element.style.setProperty("position", "absolute", "important");
-    element.style.setProperty("width", "100px", "important");
-    element.style.setProperty("height", "100px", "important");
+    element.style.setProperty("width", `${Math.max(1, Number(entry.width) || 100)}px`, "important");
+    element.style.setProperty("height", `${Math.max(1, Number(entry.height) || 100)}px`, "important");
     element.style.setProperty("box-sizing", "border-box", "important");
     element.style.setProperty("border", "1px solid #9ca3af", "important");
   }
@@ -883,7 +888,7 @@ function insertTextAtPoint(clientX, clientY, anchor) {
   return true;
 }
 
-function insertBoxAtPoint(clientX, clientY) {
+function insertBoxAtPoint(clientX, clientY, { width = 100, height = 100, fitContents = true } = {}) {
   const parent = findCanvasInsertionParent();
   if (!(parent instanceof Element)) return false;
 
@@ -895,8 +900,9 @@ function insertBoxAtPoint(clientX, clientY) {
     parentIdentity: elementIdentity(parent),
     inlineStyle: "",
     selectionId: null,
-    width: 100,
-    height: 100,
+    width,
+    height,
+    fitContents,
   };
   const element = createInsertedBoxNode(entry, parent);
   const position = positionForPoint(element, clientX, clientY);
@@ -912,6 +918,27 @@ function insertBoxAtPoint(clientX, clientY) {
   moveOverlay(element);
   ipcRenderer.sendToHost("formia:element-selected", selectionPayload(element));
   sendLayerTree();
+  return element;
+}
+
+function updateInsertedBoxBounds(element, startX, startY, endX, endY) {
+  const entry = insertedBoxElements.get(element);
+  if (!(element instanceof Element) || !entry) return false;
+
+  const left = Math.min(startX, endX);
+  const top = Math.min(startY, endY);
+  const position = positionForPoint(element, left, top);
+  const width = Math.max(1, Math.round(Math.abs(endX - startX)));
+  const height = Math.max(1, Math.round(Math.abs(endY - startY)));
+  element.style.setProperty("left", `${position.left}px`, "important");
+  element.style.setProperty("top", `${position.top}px`, "important");
+  element.style.setProperty("width", `${width}px`, "important");
+  element.style.setProperty("height", `${height}px`, "important");
+  entry.inlineStyle = element.getAttribute("style") || entry.inlineStyle;
+  entry.left = position.left;
+  entry.top = position.top;
+  entry.width = width;
+  entry.height = height;
   return true;
 }
 
@@ -1141,6 +1168,79 @@ function endTextPositionDrag(event) {
   }
 
   sendUpdatedSelection();
+  return true;
+}
+
+function beginDivInsertionDrag(event) {
+  if (activeTool !== "div" || event.button !== 0 || divInsertionDrag || layerPointerDrag || textPositionDrag) return;
+  const target = event.target;
+  if (!(target instanceof Element) || target === overlay || target === hoverOverlay || target === dropIndicator || target === dropTargetOverlay || target === document.documentElement) return;
+
+  divInsertionDrag = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    moved: false,
+    element: null,
+    captureTarget: target,
+  };
+  target.setPointerCapture?.(event.pointerId);
+}
+
+function moveDivInsertionDrag(event) {
+  if (!divInsertionDrag || event.pointerId !== divInsertionDrag.pointerId) return false;
+
+  const drag = divInsertionDrag;
+  const deltaX = event.clientX - drag.startX;
+  const deltaY = event.clientY - drag.startY;
+  if (!drag.moved && Math.hypot(deltaX, deltaY) < 5) return true;
+
+  if (!drag.moved) {
+    drag.moved = true;
+    suppressNextClick = true;
+    const left = Math.min(drag.startX, event.clientX);
+    const top = Math.min(drag.startY, event.clientY);
+    drag.element = insertBoxAtPoint(left, top, {
+      width: Math.max(1, Math.round(Math.abs(deltaX))),
+      height: Math.max(1, Math.round(Math.abs(deltaY))),
+      fitContents: false,
+    });
+  }
+
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (drag.element instanceof Element) {
+    updateInsertedBoxBounds(drag.element, drag.startX, drag.startY, event.clientX, event.clientY);
+    moveOverlay(drag.element);
+  }
+  return true;
+}
+
+function endDivInsertionDrag(event) {
+  if (!divInsertionDrag || event.pointerId !== divInsertionDrag.pointerId) return false;
+
+  const drag = divInsertionDrag;
+  divInsertionDrag = null;
+  drag.captureTarget?.releasePointerCapture?.(event.pointerId);
+  hideDropIndicator();
+  if (!drag.moved || !(drag.element instanceof Element)) return true;
+
+  if (event.type === "pointercancel") {
+    suppressNextClick = false;
+    insertedBoxElements.delete(drag.element);
+    if (selectedElement === drag.element) clearSelection();
+    drag.element.remove();
+    sendLayerTree();
+    sendPreviewState();
+    return true;
+  }
+
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  updateInsertedBoxBounds(drag.element, drag.startX, drag.startY, event.clientX, event.clientY);
+  moveOverlay(drag.element);
+  sendUpdatedSelection();
+  sendLayerTree();
   return true;
 }
 
@@ -1617,6 +1717,10 @@ function findCanvasTextDropTarget(x, y, source) {
 }
 
 function beginCanvasLayerDrag(event) {
+  if (activeTool === "div") {
+    beginDivInsertionDrag(event);
+    return;
+  }
   if (activeTool !== "select" || event.button !== 0 || layerPointerDrag || textPositionDrag) return;
   const element = selectedElement?.contains(event.target) ? selectedElement : event.target;
   if (!(element instanceof Element) || element === overlay || isDocumentSurface(element) || layerTreeExcludedTags.has(element.tagName)) return;
@@ -1638,6 +1742,10 @@ function beginCanvasLayerDrag(event) {
 }
 
 function moveCanvasLayerDrag(event) {
+  if (divInsertionDrag) {
+    moveDivInsertionDrag(event);
+    return;
+  }
   if (textPositionDrag) {
     moveTextPositionDrag(event);
     return;
@@ -1670,6 +1778,10 @@ function moveCanvasLayerDrag(event) {
 }
 
 function endCanvasLayerDrag(event) {
+  if (divInsertionDrag) {
+    endDivInsertionDrag(event);
+    return;
+  }
   if (textPositionDrag) {
     endTextPositionDrag(event);
     return;
@@ -1691,6 +1803,10 @@ function endCanvasLayerDrag(event) {
 }
 
 function cancelCanvasLayerDrag() {
+  if (divInsertionDrag) {
+    endDivInsertionDrag({ pointerId: divInsertionDrag.pointerId, type: "pointercancel", preventDefault() {}, stopImmediatePropagation() {} });
+    return;
+  }
   if (textPositionDrag) {
     endTextPositionDrag({ pointerId: textPositionDrag.pointerId, type: "pointercancel", preventDefault() {}, stopImmediatePropagation() {} });
     return;
@@ -1702,7 +1818,14 @@ function cancelCanvasLayerDrag() {
 window.addEventListener("blur", cancelCanvasLayerDrag);
 window.addEventListener("lostpointercapture", cancelCanvasLayerDrag);
 window.addEventListener("dragstart", (event) => {
-  if (activeTool === "select") event.preventDefault();
+  if (activeTool !== "interact") event.preventDefault();
+}, true);
+
+window.addEventListener("selectstart", (event) => {
+  if (activeTool === "interact") return;
+  const target = event.target;
+  if (textEditingState?.element && target instanceof Node && textEditingState.element.contains(target)) return;
+  event.preventDefault();
 }, true);
 
 function compactValue(value, depth = 0, seen = new WeakSet()) {
@@ -1969,6 +2092,7 @@ function collectStructuralPreviewChanges() {
         elementTagName: "div",
         position: { left: Math.round(left), top: Math.round(top) },
         size: { width, height },
+        fitContents: Boolean(entry.fitContents),
         sourceContext: null,
         previewParent: {
           selectionId: parentDetails.selectionId,
@@ -2072,7 +2196,7 @@ window.addEventListener(
     if (textEditingState?.element === element) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (activeTool === "box") {
+    if (activeTool === "div") {
       insertBoxAtPoint(event.clientX, event.clientY);
       return;
     }
@@ -2140,7 +2264,7 @@ function isCanvasShortcut(event) {
   if (event.code === "Equal" || event.code === "NumpadAdd" || event.code === "Minus" || event.code === "NumpadSubtract") return true;
   if (event.shiftKey) return false;
 
-  return event.code === "KeyS" || event.code === "KeyI" || event.code === "KeyT" || event.code === "KeyB" || event.code === "Digit0" || event.code === "Numpad0";
+  return event.code === "KeyS" || event.code === "KeyI" || event.code === "KeyT" || event.code === "KeyD" || event.code === "Digit0" || event.code === "Numpad0";
 }
 
 window.addEventListener(
@@ -2149,7 +2273,7 @@ window.addEventListener(
     const targetIsEditable = Boolean(textEditingState) || isEditableKeyboardTarget(event.target);
 
     if (event.code === "Escape") {
-      if (layerPointerDrag || textPositionDrag) {
+      if (layerPointerDrag || textPositionDrag || divInsertionDrag) {
         cancelCanvasLayerDrag();
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -2201,7 +2325,7 @@ window.addEventListener(
 );
 
 ipcRenderer.on("formia:set-tool", (_event, tool) => {
-  if (!["interact", "select", "text", "box"].includes(tool)) return;
+  if (!["interact", "select", "text", "div"].includes(tool)) return;
   cancelCanvasLayerDrag();
   activeTool = tool;
   installCursorStyle();

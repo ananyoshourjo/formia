@@ -22,7 +22,7 @@ app.whenReady().then(async () => {
 
   try {
     await page.loadURL('data:text/html,' + encodeURIComponent('<style>body{margin:0}</style><main id="root"></main>'));
-    page.send('formia:set-tool', 'box');
+    page.send('formia:set-tool', 'div');
     await settle();
     input('mouseDown', 250, 250);
     input('mouseUp', 250, 250);
