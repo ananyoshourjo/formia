@@ -72,11 +72,13 @@ let selectedElementIdentity = null;
 let textEditingState = null;
 let selectionSequence = 0;
 let insertedTextSequence = 0;
+let insertedBoxSequence = 0;
 let layerTreeObserver = null;
 let layerTreeTimer = null;
 
 const selectionAttribute = "data-formia-selection-id";
 const insertedTextAttribute = "data-formia-inserted-text";
+const insertedBoxAttribute = "data-formia-inserted-box";
 const canvasTextDropExcludedTags = new Set(["A", "B", "BR", "CODE", "EM", "H1", "H2", "H3", "H4", "H5", "H6", "I", "INPUT", "LABEL", "P", "PRE", "S", "SELECT", "SMALL", "SPAN", "STRONG", "TEXTAREA", "U"]);
 const canvasTextDropContainerDisplays = new Set(["block", "flow-root", "flex", "grid", "inline-block", "inline-flex", "inline-grid", "list-item", "table", "table-cell", "table-caption", "table-row"]);
 const layerTreeExcludedTags = new Set(["SCRIPT", "STYLE", "LINK", "META", "TITLE", "NOSCRIPT", "TEMPLATE", "PATH", "CIRCLE", "RECT", "LINE", "POLYLINE", "POLYGON"]);
@@ -154,6 +156,7 @@ const structuralMoves = new Map();
 const deletedElements = new Map();
 const duplicatedElements = new Map();
 const insertedTextElements = new Map();
+const insertedBoxElements = new Map();
 let isReapplyingStructuralMoves = false;
 let isRebindingPreviewOverrides = false;
 let layerPointerDrag = null;
@@ -165,6 +168,7 @@ const toolCursorPaths = {
   interact: "M220.49,207.8,207.8,220.49a12,12,0,0,1-17,0l-56.57-56.57L115,214.08l-.13.33A15.84,15.84,0,0,1,100.26,224l-.78,0a15.82,15.82,0,0,1-14.41-11L32.8,52.92A15.95,15.95,0,0,1,52.92,32.8L213,85.07a16,16,0,0,1,1.41,29.8l-.33.13-50.16,19.27,56.57,56.56A12,12,0,0,1,220.49,207.8Z",
   select: "M248,121.58a15.76,15.76,0,0,1-11.29,15l-.2.06-78,21.84-21.84,78-.06.2a15.77,15.77,0,0,1-15,11.29h-.3a15.77,15.77,0,0,1-15.07-10.67L41,61.41a1,1,0,0,1-.05-.16A16,16,0,0,1,61.25,40.9l.16.05,175.92,65.26A15.78,15.78,0,0,1,248,121.58Z",
   text: "M184,208a8,8,0,0,1-8,8H160a40,40,0,0,1-32-16,40,40,0,0,1-32,16H80a8,8,0,0,1,0-16H96a24,24,0,0,0,24-24V136H104a8,8,0,0,1,0-16h16V80A24,24,0,0,0,96,56H80a8,8,0,0,1,0-16H96a40,40,0,0,1,32,16,40,40,0,0,1,32-16h16a8,8,0,0,1,0,16H160a24,24,0,0,0-24,24v40h16a8,8,0,0,1,0,16H136v40a24,24,0,0,0,24,24h16A8,8,0,0,1,184,208Z",
+  box: "M216,32H40A8,8,0,0,0,32,40V216A8,8,0,0,0,40,224H216A8,8,0,0,0,224,216V40A8,8,0,0,0,216,32Zm-8,176H48V48H208Z",
 };
 
 const cursorStyle = document.createElement("style");
@@ -325,9 +329,10 @@ function showDropTarget(target) {
   const rect = target.element.getBoundingClientRect();
   Object.assign(dropIndicator.style, {
     display: "block",
-    left: `${rect.left}px`,
-    top: `${target.type === "before" ? rect.top : rect.bottom - 1}px`,
-    width: `${rect.width}px`,
+    left: `${target.axis === "x" ? (target.type === "before" !== Boolean(target.reverse) ? rect.left : rect.right - 1) : rect.left}px`,
+    top: `${target.axis === "x" ? rect.top : (target.type === "before" !== Boolean(target.reverse) ? rect.top : rect.bottom - 1)}px`,
+    width: `${target.axis === "x" ? 3 : rect.width}px`,
+    height: `${target.axis === "x" ? rect.height : 3}px`,
   });
   dropTargetOverlay.style.display = "none";
 }
@@ -535,6 +540,44 @@ function rebindPreviewOverrides() {
       }
     }
 
+    for (const entry of Array.from(insertedBoxElements.values())) {
+      const previous = entry.element;
+      if (previous?.isConnected) {
+        entry.inlineStyle = previous.getAttribute("style") || entry.inlineStyle;
+        entry.selectionId = previous.getAttribute(selectionAttribute) || entry.selectionId;
+        syncInsertedBoxSize(previous);
+        continue;
+      }
+
+      if (previous instanceof Element) {
+        entry.inlineStyle = previous.getAttribute("style") || entry.inlineStyle;
+        entry.selectionId = previous.getAttribute(selectionAttribute) || entry.selectionId;
+      }
+
+      const parent = entry.parent?.isConnected
+        ? entry.parent
+        : findPreviewReplacement(entry.parentIdentity) || findCanvasInsertionParent();
+      if (!(parent instanceof Element)) continue;
+
+      const inserted = createInsertedBoxNode(entry, parent);
+      insertedBoxElements.delete(previous);
+      insertedBoxElements.set(inserted, entry);
+      entry.element = inserted;
+      entry.parent = parent;
+      entry.parentIdentity = elementIdentity(parent);
+
+      for (const move of structuralMoves.values()) {
+        if (move.element !== previous) continue;
+        move.element = inserted;
+        move.elementIdentity = elementIdentity(inserted);
+      }
+
+      if (selectedElement === previous) {
+        selectedElement = inserted;
+        selectedElementIdentity = elementIdentity(inserted);
+      }
+    }
+
     if (selectedElement instanceof Element && selectedElement.isConnected) {
       ensureLayerSelectionId(selectedElement);
       moveOverlay(selectedElement);
@@ -658,6 +701,14 @@ function isInsertedTextLayer(element) {
   return element instanceof Element && element.hasAttribute(insertedTextAttribute);
 }
 
+function isInsertedBoxLayer(element) {
+  return element instanceof Element && element.hasAttribute(insertedBoxAttribute);
+}
+
+function isInsertedLayer(element) {
+  return isInsertedTextLayer(element) || isInsertedBoxLayer(element);
+}
+
 function findCanvasInsertionParent() {
   return document.body || null;
 }
@@ -691,6 +742,78 @@ function positionForPoint(element, clientX, clientY) {
   };
 }
 
+function measuredInsertedBoxChildRect(box, child, boxRect) {
+  const currentRect = child.getBoundingClientRect();
+  const computedBox = getComputedStyle(box);
+  const contentWidth = Math.max(1, boxRect.width - (Number.parseFloat(computedBox.borderLeftWidth) || 0) - (Number.parseFloat(computedBox.borderRightWidth) || 0));
+  const explicitWidth = child.style.getPropertyValue("width").trim();
+  if (explicitWidth || currentRect.width < contentWidth - 0.5) return currentRect;
+
+  const originalWidth = {
+    value: child.style.getPropertyValue("width"),
+    priority: child.style.getPropertyPriority("width"),
+  };
+  const originalMaxWidth = {
+    value: child.style.getPropertyValue("max-width"),
+    priority: child.style.getPropertyPriority("max-width"),
+  };
+  child.style.setProperty("width", "max-content", "important");
+  child.style.setProperty("max-width", "none", "important");
+  const intrinsicRect = child.getBoundingClientRect();
+  if (originalWidth.value) child.style.setProperty("width", originalWidth.value, originalWidth.priority);
+  else child.style.removeProperty("width");
+  if (originalMaxWidth.value) child.style.setProperty("max-width", originalMaxWidth.value, originalMaxWidth.priority);
+  else child.style.removeProperty("max-width");
+
+  return intrinsicRect.width > currentRect.width ? intrinsicRect : currentRect;
+}
+
+function measuredBoxChildBounds(box, boxRect, borderRight, borderBottom) {
+  let width = 1;
+  let height = 1;
+  for (const child of Array.from(box.children)) {
+    const rect = measuredInsertedBoxChildRect(box, child, boxRect);
+    width = Math.max(width, Math.ceil(rect.right - boxRect.left + borderRight));
+    height = Math.max(height, Math.ceil(rect.bottom - boxRect.top + borderBottom));
+  }
+  return { width, height };
+}
+
+function syncInsertedBoxSize(element) {
+  const entry = insertedBoxElements.get(element);
+  if (!(element instanceof Element) || !entry) return;
+
+  if (element.children.length === 0) {
+    element.style.setProperty("width", "100px", "important");
+    element.style.setProperty("height", "100px", "important");
+    entry.inlineStyle = element.getAttribute("style") || entry.inlineStyle;
+    entry.width = 100;
+    entry.height = 100;
+    return;
+  }
+
+  const boxRect = element.getBoundingClientRect();
+  const computed = getComputedStyle(element);
+  const borderRight = Number.parseFloat(computed.borderRightWidth) || 0;
+  const borderBottom = Number.parseFloat(computed.borderBottomWidth) || 0;
+  const measured = measuredBoxChildBounds(element, boxRect, borderRight, borderBottom);
+  const width = measured.width;
+  const height = measured.height;
+
+  element.style.setProperty("width", `${width}px`, "important");
+  element.style.setProperty("height", `${height}px`, "important");
+  entry.inlineStyle = element.getAttribute("style") || entry.inlineStyle;
+  entry.width = width;
+  entry.height = height;
+}
+
+function syncInsertedBoxSizes() {
+  const entries = Array.from(insertedBoxElements.values()).reverse();
+  for (const { element } of entries) {
+    if (element?.isConnected) syncInsertedBoxSize(element);
+  }
+}
+
 function createInsertedTextNode(entry, parent) {
   const element = document.createElement("p");
   element.setAttribute(insertedTextAttribute, entry.insertionId);
@@ -701,6 +824,25 @@ function createInsertedTextNode(entry, parent) {
   } else {
     element.style.setProperty("position", "absolute", "important");
     element.style.setProperty("margin", "0", "important");
+  }
+
+  if (entry.selectionId) element.setAttribute(selectionAttribute, entry.selectionId);
+  parent.appendChild(element);
+  return element;
+}
+
+function createInsertedBoxNode(entry, parent) {
+  const element = document.createElement("div");
+  element.setAttribute(insertedBoxAttribute, entry.insertionId);
+
+  if (entry.inlineStyle) {
+    element.setAttribute("style", entry.inlineStyle);
+  } else {
+    element.style.setProperty("position", "absolute", "important");
+    element.style.setProperty("width", "100px", "important");
+    element.style.setProperty("height", "100px", "important");
+    element.style.setProperty("box-sizing", "border-box", "important");
+    element.style.setProperty("border", "1px solid #9ca3af", "important");
   }
 
   if (entry.selectionId) element.setAttribute(selectionAttribute, entry.selectionId);
@@ -741,6 +883,38 @@ function insertTextAtPoint(clientX, clientY, anchor) {
   return true;
 }
 
+function insertBoxAtPoint(clientX, clientY) {
+  const parent = findCanvasInsertionParent();
+  if (!(parent instanceof Element)) return false;
+
+  finishTextEditing();
+  const entry = {
+    insertionId: `formia-box-${++insertedBoxSequence}`,
+    element: null,
+    parent,
+    parentIdentity: elementIdentity(parent),
+    inlineStyle: "",
+    selectionId: null,
+    width: 100,
+    height: 100,
+  };
+  const element = createInsertedBoxNode(entry, parent);
+  const position = positionForPoint(element, clientX, clientY);
+  element.style.setProperty("left", `${position.left}px`, "important");
+  element.style.setProperty("top", `${position.top}px`, "important");
+  entry.element = element;
+  entry.inlineStyle = element.getAttribute("style") || "";
+  entry.left = position.left;
+  entry.top = position.top;
+  insertedBoxElements.set(element, entry);
+
+  selectElement(element);
+  moveOverlay(element);
+  ipcRenderer.sendToHost("formia:element-selected", selectionPayload(element));
+  sendLayerTree();
+  return true;
+}
+
 function rememberStructure(element) {
   if (structureSnapshots.has(element)) return structureSnapshots.get(element);
 
@@ -771,6 +945,14 @@ function moveElementTo(element, targetParent, beforeElement = null) {
     insertedText.parent = targetParent;
     insertedText.parentIdentity = elementIdentity(targetParent);
   }
+  const insertedBox = insertedBoxElements.get(element);
+  if (insertedBox) {
+    insertedBox.parent = targetParent;
+    insertedBox.parentIdentity = elementIdentity(targetParent);
+  }
+
+  syncInsertedBoxSize(snapshot.parent);
+  syncInsertedBoxSize(targetParent);
 
   if (isOriginalPlacement(element, snapshot)) {
     structuralMoves.delete(element);
@@ -875,6 +1057,7 @@ function beginTextPositionDrag(event, element) {
     initialTop: top,
     moved: false,
     dropTarget: null,
+    freeMove: event.shiftKey,
   };
   element.setPointerCapture?.(event.pointerId);
 }
@@ -902,14 +1085,15 @@ function moveTextPositionDrag(event) {
   const top = Math.round(drag.initialTop + deltaY);
   drag.element.style.setProperty("left", `${left}px`, "important");
   drag.element.style.setProperty("top", `${top}px`, "important");
-  const entry = insertedTextElements.get(drag.element);
+  const entry = insertedTextElements.get(drag.element) || insertedBoxElements.get(drag.element);
   if (entry) {
     entry.inlineStyle = drag.element.getAttribute("style") || entry.inlineStyle;
     entry.left = left;
     entry.top = top;
   }
 
-  drag.dropTarget = findCanvasTextDropTarget(event.clientX, event.clientY, drag.element);
+  if (event.shiftKey) drag.freeMove = true;
+  drag.dropTarget = drag.freeMove ? null : findCanvasTextDropTarget(event.clientX, event.clientY, drag.element);
   if (drag.dropTarget) showDropTarget(drag.dropTarget);
   else hideDropIndicator();
 
@@ -932,7 +1116,7 @@ function endTextPositionDrag(event) {
   event.preventDefault();
   event.stopImmediatePropagation();
 
-  const target = event.type === "pointerup"
+  const target = event.type === "pointerup" && !drag.freeMove
     ? findCanvasTextDropTarget(event.clientX, event.clientY, drag.element)
     : null;
   hideDropIndicator();
@@ -942,7 +1126,7 @@ function endTextPositionDrag(event) {
     drag.element.style.setProperty("left", `${position.left}px`, "important");
     drag.element.style.setProperty("top", `${position.top}px`, "important");
 
-    const entry = insertedTextElements.get(drag.element);
+    const entry = insertedTextElements.get(drag.element) || insertedBoxElements.get(drag.element);
     if (entry) {
       entry.inlineStyle = drag.element.getAttribute("style") || entry.inlineStyle;
       entry.left = position.left;
@@ -973,10 +1157,12 @@ function deleteSelectedLayer() {
   const snapshot = rememberStructure(element);
   const details = inspectElement(element);
   const insertedText = insertedTextElements.get(element);
+  const insertedBox = insertedBoxElements.get(element);
   const duplicated = duplicatedElements.get(element);
 
   structuralMoves.delete(element);
   if (insertedText) insertedTextElements.delete(element);
+  else if (insertedBox) insertedBoxElements.delete(element);
   else if (duplicated) duplicatedElements.delete(element);
   else {
     deletedElements.set(element, {
@@ -987,6 +1173,12 @@ function deleteSelectedLayer() {
       originalIndex: snapshot.index,
       details,
     });
+  }
+
+  for (const descendant of element.querySelectorAll(`[${insertedTextAttribute}], [${insertedBoxAttribute}]`)) {
+    insertedTextElements.delete(descendant);
+    insertedBoxElements.delete(descendant);
+    structuralMoves.delete(descendant);
   }
 
   selectedElement = null;
@@ -1026,6 +1218,7 @@ function duplicateSelectedLayer() {
 }
 
 function sendUpdatedSelection() {
+  syncInsertedBoxSizes();
   if (selectedElement) {
     ipcRenderer.sendToHost("formia:element-updated", selectionPayload(selectedElement));
   }
@@ -1156,6 +1349,11 @@ function resetAllOverrides() {
   }
   insertedTextElements.clear();
 
+  for (const { element } of Array.from(insertedBoxElements.values()).reverse()) {
+    if (element.isConnected) element.remove();
+  }
+  insertedBoxElements.clear();
+
   for (const { element, originalParent, originalIndex } of Array.from(deletedElements.values()).reverse()) {
     if (!element.isConnected && originalParent?.isConnected) {
       const siblings = Array.from(originalParent.children);
@@ -1238,13 +1436,15 @@ function layerDetail(element) {
   return null;
 }
 
-function markInsertedLayerBranches(element, branches) {
-  let containsInsertedText = isInsertedTextLayer(element);
+function markInsertedLayerBranches(element, branches, insideInsertedBox = false) {
+  const isInsideInsertedBox = insideInsertedBox || isInsertedBoxLayer(element);
+  let containsInsertedLayer = isInsertedLayer(element) || insideInsertedBox;
+  if (isInsideInsertedBox) branches.add(element);
   for (const child of element.children) {
-    if (markInsertedLayerBranches(child, branches)) containsInsertedText = true;
+    if (markInsertedLayerBranches(child, branches, isInsideInsertedBox)) containsInsertedLayer = true;
   }
-  if (containsInsertedText) branches.add(element);
-  return containsInsertedText;
+  if (containsInsertedLayer) branches.add(element);
+  return containsInsertedLayer;
 }
 
 function buildLayerNode(element, state, depth = 0) {
@@ -1268,6 +1468,7 @@ function buildLayerNode(element, state, depth = 0) {
     name: componentName || element.tagName.toLowerCase(),
     detail: layerDetail(element),
     children,
+    inserted: isInsertedBoxLayer(element) ? "box" : isInsertedTextLayer(element) ? "text" : null,
   };
 }
 
@@ -1285,6 +1486,7 @@ function sendLayerTree() {
   if (!document.body) return;
   rebindPreviewOverrides();
   reapplyStructuralOverrides();
+  syncInsertedBoxSizes();
   ipcRenderer.sendToHost("formia:layer-tree", { nodes: collectLayerTree() });
 }
 
@@ -1343,17 +1545,38 @@ function selectLayer(selectionId) {
 }
 
 function findCanvasDropTarget(x, y, source) {
-  const element = document.elementFromPoint(x, y);
+  let element = document.elementFromPoint(x, y);
   if (!(element instanceof Element) || element === overlay || element === dropIndicator || element === dropTargetOverlay) return null;
   if (element === source || source.contains(element) || element === document.documentElement || element === document.scrollingElement || layerTreeExcludedTags.has(element.tagName)) return null;
   if (element === document.body) return { type: "inside", element, parent: document.body, before: null };
 
+  const insertedBox = element.closest(`[${insertedBoxAttribute}]`);
+  if (insertedBox instanceof Element && insertedBox !== source && !source.contains(insertedBox)) {
+    return { type: "inside", element: insertedBox, parent: insertedBox, before: null };
+  }
+
+  // Prefer the sibling being crossed over its nested text, icons, and wrappers.
+  let sibling = element;
+  while (sibling.parentElement && sibling.parentElement !== source.parentElement) sibling = sibling.parentElement;
+  if (sibling.parentElement === source.parentElement) element = sibling;
+
   const parent = element.parentElement;
   if (!parent || isDocumentSurface(parent) && parent !== document.body) return null;
   const rect = element.getBoundingClientRect();
-  const relativeY = rect.height > 0 ? (y - rect.top) / rect.height : 0.5;
-  if (relativeY < 0.25) return { type: "before", element, parent, before: element };
-  if (relativeY > 0.75) return { type: "after", element, parent, before: element.nextElementSibling };
+  const layout = getComputedStyle(parent);
+  const horizontal = layout.display.includes("flex") && layout.flexDirection.startsWith("row") || layout.display.includes("grid") && layout.gridTemplateColumns.split(" ").length > 1;
+  const axis = horizontal ? "x" : "y";
+  const reverse = horizontal ? (layout.direction === "rtl") !== (layout.flexDirection === "row-reverse") : layout.flexDirection === "column-reverse";
+  const size = horizontal ? rect.width : rect.height;
+  let fraction = size > 0 ? ((horizontal ? x - rect.left : y - rect.top) / size) : 0.5;
+  if (reverse) fraction = 1 - fraction;
+  // A small dead band prevents flicker at the nesting/reorder boundaries.
+  const previous = canvasDropTarget?.element === element ? canvasDropTarget.type : null;
+  const edge = Math.min(0.25, 24 / Math.max(1, size));
+  const slop = Math.min(0.08, 4 / Math.max(1, size));
+  if (fraction < edge + (previous === "before" ? slop : 0)) return { type: "before", element, parent, before: element, axis, reverse };
+  if (fraction > 1 - edge - (previous === "after" ? slop : 0)) return { type: "after", element, parent, before: element.nextElementSibling, axis, reverse };
+  if (element.children.length === 0) return { type: fraction < 0.5 ? "before" : "after", element, parent, before: fraction < 0.5 ? element : element.nextElementSibling, axis, reverse };
   return { type: "inside", element, parent: element, before: null };
 }
 
@@ -1395,10 +1618,10 @@ function findCanvasTextDropTarget(x, y, source) {
 
 function beginCanvasLayerDrag(event) {
   if (activeTool !== "select" || event.button !== 0 || layerPointerDrag || textPositionDrag) return;
-  const element = event.target;
+  const element = selectedElement?.contains(event.target) ? selectedElement : event.target;
   if (!(element instanceof Element) || element === overlay || isDocumentSurface(element) || layerTreeExcludedTags.has(element.tagName)) return;
 
-  if (insertedTextElements.has(element)) {
+  if (insertedTextElements.has(element) || insertedBoxElements.has(element)) {
     beginTextPositionDrag(event, element);
     return;
   }
@@ -1409,6 +1632,7 @@ function beginCanvasLayerDrag(event) {
     startX: event.clientX,
     startY: event.clientY,
     moved: false,
+    frame: null,
   };
   element.setPointerCapture?.(event.pointerId);
 }
@@ -1433,9 +1657,16 @@ function moveCanvasLayerDrag(event) {
 
   event.preventDefault();
   event.stopImmediatePropagation();
-  const target = findCanvasDropTarget(event.clientX, event.clientY, layerPointerDrag.element);
-  if (target) showDropTarget(target);
-  else hideDropIndicator();
+  const drag = layerPointerDrag;
+  drag.x = event.clientX;
+  drag.y = event.clientY;
+  hideHoverOverlay();
+  if (drag.frame === null) drag.frame = requestAnimationFrame(() => {
+    drag.frame = null;
+    const target = findCanvasDropTarget(drag.x, drag.y, drag.element);
+    if (target) showDropTarget(target);
+    else hideDropIndicator();
+  });
 }
 
 function endCanvasLayerDrag(event) {
@@ -1447,28 +1678,32 @@ function endCanvasLayerDrag(event) {
 
   const drag = layerPointerDrag;
   layerPointerDrag = null;
+  if (drag.frame !== null) cancelAnimationFrame(drag.frame);
   drag.element.releasePointerCapture?.(event.pointerId);
   if (!drag.moved) return;
   if (event.type === "pointercancel") suppressNextClick = false;
 
   event.preventDefault();
   event.stopImmediatePropagation();
-  const target = canvasDropTarget;
+  const target = event.type === "pointerup" ? findCanvasDropTarget(event.clientX, event.clientY, drag.element) : null;
   hideDropIndicator();
   if (target) commitElementMove(drag.element, target);
 }
 
-function cancelTextPositionDrag() {
-  if (!textPositionDrag) return;
-  endTextPositionDrag({
-    pointerId: textPositionDrag.pointerId,
-    type: "pointercancel",
-    preventDefault() {},
-    stopImmediatePropagation() {},
-  });
+function cancelCanvasLayerDrag() {
+  if (textPositionDrag) {
+    endTextPositionDrag({ pointerId: textPositionDrag.pointerId, type: "pointercancel", preventDefault() {}, stopImmediatePropagation() {} });
+    return;
+  }
+  if (!layerPointerDrag) return;
+  endCanvasLayerDrag({ pointerId: layerPointerDrag.pointerId, type: "pointercancel", preventDefault() {}, stopImmediatePropagation() {} });
 }
 
-window.addEventListener("blur", cancelTextPositionDrag);
+window.addEventListener("blur", cancelCanvasLayerDrag);
+window.addEventListener("lostpointercapture", cancelCanvasLayerDrag);
+window.addEventListener("dragstart", (event) => {
+  if (activeTool === "select") event.preventDefault();
+}, true);
 
 function compactValue(value, depth = 0, seen = new WeakSet()) {
   if (value == null || ["string", "number", "boolean"].includes(typeof value)) return value;
@@ -1534,7 +1769,7 @@ function inspectElement(element) {
     textEditable: isTextEditable(element),
     attributes: Object.fromEntries(
       Array.from(element.attributes)
-        .filter((attribute) => !["class", "id", selectionAttribute, insertedTextAttribute].includes(attribute.name))
+        .filter((attribute) => !["class", "id", selectionAttribute, insertedTextAttribute, insertedBoxAttribute].includes(attribute.name))
         .map((attribute) => [attribute.name, attribute.value]),
     ),
     dimensions: {
@@ -1621,13 +1856,13 @@ function collectPreviewChanges() {
 
     if (changes.length === 0) return [];
     const details = inspectElement(element);
-    const insertedText = insertedTextElements.get(element);
+    const insertedElement = insertedTextElements.get(element) || insertedBoxElements.get(element);
     return [{
       selectionId: details.selectionId,
       tagName: details.tagName,
-      source: insertedText?.sourceContext?.source || details.react?.source || null,
+      source: insertedElement?.sourceContext?.source || details.react?.source || null,
       text: details.text,
-      insertionId: insertedText?.insertionId || null,
+      insertionId: insertedElement?.insertionId || null,
       changes,
     }];
   });
@@ -1696,6 +1931,7 @@ function collectStructuralPreviewChanges() {
         sourceContext: entry.sourceContext,
         previewParent: {
           selectionId: parentDetails.selectionId,
+          insertionId: insertedBoxElements.get(entry.parent)?.insertionId || null,
           tagName: parentDetails.tagName,
           id: parentDetails.id,
           source: parentDetails.react?.source || null,
@@ -1704,7 +1940,48 @@ function collectStructuralPreviewChanges() {
     }];
   });
 
-  const moveChanges = Array.from(structuralMoves.values()).filter((move) => !isInsertedTextLayer(move.element)).flatMap((move) => {
+  const insertedBoxChanges = Array.from(insertedBoxElements.values()).flatMap((entry) => {
+    const element = entry.element;
+    if (!(element instanceof Element) || !element.isConnected || !element.parentElement) return [];
+
+    const details = inspectElement(element);
+    entry.parent = element.parentElement;
+    entry.parentIdentity = elementIdentity(entry.parent);
+    const parentDetails = inspectElement(entry.parent);
+    const left = Number.parseFloat(details.styles.left) || entry.left || 0;
+    const top = Number.parseFloat(details.styles.top) || entry.top || 0;
+    const width = Math.round(details.dimensions.width);
+    const height = Math.round(details.dimensions.height);
+    const parentInsertionId = insertedBoxElements.get(entry.parent)?.insertionId || null;
+    return [{
+      selectionId: details.selectionId,
+      insertionId: entry.insertionId,
+      tagName: "div",
+      source: null,
+      text: "",
+      changes: [{
+        kind: "structure",
+        operation: "insert",
+        property: "layer",
+        from: "Box tool",
+        to: `div in ${layerDescription(entry.parent)} at (${Math.round(left)}, ${Math.round(top)}) sized ${width} × ${height}`,
+        elementType: "box",
+        elementTagName: "div",
+        position: { left: Math.round(left), top: Math.round(top) },
+        size: { width, height },
+        sourceContext: null,
+        previewParent: {
+          selectionId: parentDetails.selectionId,
+          insertionId: parentInsertionId,
+          tagName: parentDetails.tagName,
+          id: parentDetails.id,
+          source: parentDetails.react?.source || null,
+        },
+      }],
+    }];
+  });
+
+  const moveChanges = Array.from(structuralMoves.values()).filter((move) => !isInsertedLayer(move.element)).flatMap((move) => {
     if (!move.element.isConnected || !move.targetParent.isConnected) return [];
 
     const details = inspectElement(move.element);
@@ -1723,7 +2000,7 @@ function collectStructuralPreviewChanges() {
     }];
   });
 
-  return [...deletedChanges, ...duplicatedChanges, ...insertedTextChanges, ...moveChanges];
+  return [...deletedChanges, ...duplicatedChanges, ...insertedTextChanges, ...insertedBoxChanges, ...moveChanges];
 }
 
 function sendPreviewState() {
@@ -1766,7 +2043,7 @@ window.addEventListener(
 window.addEventListener(
   "mousemove",
   (event) => {
-    if (activeTool !== "select") return;
+    if (activeTool !== "select" || layerPointerDrag?.moved || textPositionDrag?.moved) return;
     const element = event.target;
     if (!(element instanceof Element) || element === overlay || element === hoverOverlay || element === hoveredElement) return;
     hoveredElement = element;
@@ -1795,6 +2072,10 @@ window.addEventListener(
     if (textEditingState?.element === element) return;
     event.preventDefault();
     event.stopImmediatePropagation();
+    if (activeTool === "box") {
+      insertBoxAtPoint(event.clientX, event.clientY);
+      return;
+    }
     if (isSelectionBackground(element)) {
       if (activeTool === "text") insertTextAtPoint(event.clientX, event.clientY, null);
       else clearSelection();
@@ -1859,7 +2140,7 @@ function isCanvasShortcut(event) {
   if (event.code === "Equal" || event.code === "NumpadAdd" || event.code === "Minus" || event.code === "NumpadSubtract") return true;
   if (event.shiftKey) return false;
 
-  return event.code === "KeyS" || event.code === "KeyI" || event.code === "KeyT" || event.code === "Digit0" || event.code === "Numpad0";
+  return event.code === "KeyS" || event.code === "KeyI" || event.code === "KeyT" || event.code === "KeyB" || event.code === "Digit0" || event.code === "Numpad0";
 }
 
 window.addEventListener(
@@ -1868,8 +2149,8 @@ window.addEventListener(
     const targetIsEditable = Boolean(textEditingState) || isEditableKeyboardTarget(event.target);
 
     if (event.code === "Escape") {
-      if (textPositionDrag) {
-        cancelTextPositionDrag();
+      if (layerPointerDrag || textPositionDrag) {
+        cancelCanvasLayerDrag();
         event.preventDefault();
         event.stopImmediatePropagation();
         return;
@@ -1920,8 +2201,8 @@ window.addEventListener(
 );
 
 ipcRenderer.on("formia:set-tool", (_event, tool) => {
-  if (!["interact", "select", "text"].includes(tool)) return;
-  cancelTextPositionDrag();
+  if (!["interact", "select", "text", "box"].includes(tool)) return;
+  cancelCanvasLayerDrag();
   activeTool = tool;
   installCursorStyle();
   if (activeTool === "select") {

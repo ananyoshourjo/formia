@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## [1.5.0] - 2026-09-15
+
+### Added
+
+- Added a desktop Box tool for inserting transparent, grey-bordered containers that start at 100×100 and resize around their contents.
+- Added Box layers to the Layers panel with nesting, reparenting, and expandable child branches.
+
+### Fixed
+
+- Fixed Select-tool drops into inserted Boxes and improved sizing for width-constrained children.
+
 ## [1.4.0] - 2026-09-15
 
 ### Added
