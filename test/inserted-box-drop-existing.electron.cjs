@@ -23,14 +23,14 @@ app.whenReady().then(async () => {
 
   try {
     await page.loadURL('data:text/html,' + encodeURIComponent(fixture));
-    page.send('formia:set-tool', 'box');
+    page.send('formia:set-tool', 'div');
     await settle();
     input('mouseDown', 250, 250);
     input('mouseUp', 250, 250);
     await settle();
 
     const boxExists = await evaluate('Boolean(document.querySelector("[data-formia-inserted-box]"))');
-    assert.equal(boxExists, true, 'Box tool inserts a target div');
+    assert.equal(boxExists, true, 'Div tool inserts a target div');
 
     page.send('formia:set-tool', 'select');
     await settle();

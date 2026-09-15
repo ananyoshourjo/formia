@@ -1,4 +1,4 @@
-export type ToolName = "interact" | "select" | "text" | "box";
+export type ToolName = "interact" | "select" | "text" | "div";
 
 const cursorPaths: Record<ToolName, { path: string; hotspot: [number, number] }> = {
   interact: {
@@ -13,9 +13,9 @@ const cursorPaths: Record<ToolName, { path: string; hotspot: [number, number] }>
     path: "M184,208a8,8,0,0,1-8,8H160a40,40,0,0,1-32-16,40,40,0,0,1-32,16H80a8,8,0,0,1,0-16H96a24,24,0,0,0,24-24V136H104a8,8,0,0,1,0-16h16V80A24,24,0,0,0,96,56H80a8,8,0,0,1,0-16H96a40,40,0,0,1,32,16,40,40,0,0,1,32-16h16a8,8,0,0,1,0,16H160a24,24,0,0,0-24,24v40h16a8,8,0,0,1,0,16H136v40a24,24,0,0,0,24,24h16A8,8,0,0,1,184,208Z",
     hotspot: [8, 8],
   },
-  box: {
-    path: "M216,32H40A8,8,0,0,0,32,40V216A8,8,0,0,0,40,224H216A8,8,0,0,0,224,216V40A8,8,0,0,0,216,32Zm-8,176H48V48H208Z",
-    hotspot: [2, 2],
+  div: {
+    path: "M216,120H136V40a8,8,0,0,0-16,0v80H40a8,8,0,0,0,0,16h80v80a8,8,0,0,0,16,0V136h80a8,8,0,0,0,0-16Z",
+    hotspot: [8, 8],
   },
 };
 
