@@ -58,10 +58,11 @@ type PreviewChange = {
     intent?: "replace-primary-font-family";
     preserveFallbacks?: boolean;
     primaryFont?: string;
-    elementType?: "text";
-    elementTagName?: "p";
+    elementType?: "text" | "box";
+    elementTagName?: "p" | "div";
     content?: string;
     position?: { left: number; top: number };
+    size?: { width: number; height: number };
     sourceContext?: unknown;
     previewParent?: unknown;
   }>;
@@ -73,6 +74,7 @@ type LayerNode = {
   name: string;
   detail: string | null;
   children: LayerNode[];
+  inserted?: "text" | "box" | null;
 };
 
 type LayerDropTarget = {
@@ -86,6 +88,7 @@ const workspaceTools: Array<{ name: ToolName; label: string; shortcut: string; i
   { name: "interact", label: "Interact", shortcut: "I", icon: CursorIcon, weight: "regular" },
   { name: "select", label: "Select", shortcut: "S", icon: NavigationArrowIcon, weight: "regular" },
   { name: "text", label: "Text", shortcut: "T", icon: CursorTextIcon, weight: "regular" },
+  { name: "box", label: "Box", shortcut: "B", icon: RectangleIcon, weight: "regular" },
 ];
 
 type CanvasWheelInput = {
@@ -2049,6 +2052,14 @@ function collectExpandableLayerIds(nodes: LayerNode[], ids = new Set<string>()) 
   return ids;
 }
 
+function collectInsertedBoxChildCounts(nodes: LayerNode[], counts = new Map<string, number>()) {
+  for (const node of nodes) {
+    if (node.inserted === "box") counts.set(node.selectionId, node.children.length);
+    collectInsertedBoxChildCounts(node.children, counts);
+  }
+  return counts;
+}
+
 function findLayerAncestorIds(nodes: LayerNode[], targetId: string, ancestors = new Set<string>()): Set<string> | null {
   for (const node of nodes) {
     if (node.selectionId === targetId) return ancestors;
@@ -2199,6 +2210,7 @@ function LayerPanel({
 }) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [collapsedBySelection, setCollapsedBySelection] = useState<{ selectionId: string | null; ids: Set<string> }>(() => ({ selectionId: null, ids: new Set() }));
+  const [collapsedInsertedBoxIds, setCollapsedInsertedBoxIds] = useState<Set<string>>(() => new Set());
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<LayerDropTarget | null>(null);
   const selectedId = selection?.selectionId || null;
@@ -2211,15 +2223,39 @@ function LayerPanel({
   for (const selectionId of selectedCollapsedIds) visibleExpandedIds.delete(selectionId);
   const collapsedIds = collectExpandableLayerIds(layerTree);
   for (const selectionId of visibleExpandedIds) collapsedIds.delete(selectionId);
+  const insertedBoxChildCounts = collectInsertedBoxChildCounts(layerTree);
+  for (const [selectionId, childCount] of insertedBoxChildCounts) {
+    if (childCount > 0 && !collapsedInsertedBoxIds.has(selectionId) && !selectedCollapsedIds.has(selectionId)) collapsedIds.delete(selectionId);
+  }
 
   function toggleLayer(selectionId: string) {
     const isSelectedAncestor = selectedAncestorIds?.has(selectionId) || false;
     if (isSelectedAncestor) {
+      const isInsertedBox = insertedBoxChildCounts.has(selectionId);
+      const isCollapsed = selectedCollapsedIds.has(selectionId) || (isInsertedBox && collapsedInsertedBoxIds.has(selectionId));
       setCollapsedBySelection((current) => {
         const next = new Set(current.selectionId === selectedId ? current.ids : []);
-        if (visibleExpandedIds.has(selectionId)) next.add(selectionId);
-        else next.delete(selectionId);
+        if (isCollapsed) next.delete(selectionId);
+        else next.add(selectionId);
         return { selectionId: selectedId, ids: next };
+      });
+      if (isInsertedBox) {
+        setCollapsedInsertedBoxIds((current) => {
+          const next = new Set(current);
+          if (isCollapsed) next.delete(selectionId);
+          else next.add(selectionId);
+          return next;
+        });
+      }
+      return;
+    }
+
+    if (insertedBoxChildCounts.has(selectionId)) {
+      setCollapsedInsertedBoxIds((current) => {
+        const next = new Set(current);
+        if (next.has(selectionId)) next.delete(selectionId);
+        else next.add(selectionId);
+        return next;
       });
       return;
     }
@@ -2234,11 +2270,13 @@ function LayerPanel({
 
   function expandAllLayers() {
     setExpandedIds(collectExpandableLayerIds(layerTree));
+    setCollapsedInsertedBoxIds(new Set());
     setCollapsedBySelection({ selectionId: selectedId, ids: new Set() });
   }
 
   function collapseAllLayers() {
     setExpandedIds(new Set());
+    setCollapsedInsertedBoxIds(new Set(insertedBoxChildCounts.keys()));
     setCollapsedBySelection({ selectionId: selectedId, ids: new Set(selectedAncestorIds || []) });
   }
 
@@ -2365,7 +2403,7 @@ function WorkspaceToolbar({
 }) {
   return (
     <aside className={`flex h-full w-11 shrink-0 flex-col items-center border-r border-border bg-white pt-2 ${className || ""}`} aria-label="Workspace tools">
-      {workspaceTools.map(({ name, label, shortcut, icon: Icon, weight }) => (
+      {workspaceTools.filter(({ name }) => isDesktop || name !== "box").map(({ name, label, shortcut, icon: Icon, weight }) => (
         <Hint key={name} content={`${label} (${shortcut})`}>
           <Button
             type="button"
@@ -3150,6 +3188,11 @@ export function ProjectWorkspace({
     if (input.code === "KeyT") {
       input.preventDefault?.();
       selectTool("text");
+      return;
+    }
+    if (input.code === "KeyB" && isDesktop) {
+      input.preventDefault?.();
+      selectTool("box");
       return;
     }
     if (input.code === "Digit0" || input.code === "Numpad0") {
