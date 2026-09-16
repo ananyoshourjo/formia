@@ -45,6 +45,68 @@ type SelectedElement = {
   previewChanges: PreviewChange[];
 };
 
+type InspectorElementKind = "container" | "text" | "link" | "button" | "form-control" | "list" | "list-item" | "table" | "table-row" | "table-cell" | "photo" | "video" | "svg" | "svg-shape" | "unknown";
+type InspectorContentCapability = "none" | "text" | "image";
+type InspectorTypographyCapability = "none" | "self" | "descendants";
+
+type InspectorCapabilities = {
+  kind: InspectorElementKind;
+  content: InspectorContentCapability;
+  layout: boolean;
+  typography: InspectorTypographyCapability;
+  color: { foreground: boolean; background: boolean };
+  border: boolean;
+};
+
+const inspectorCapabilityDefinitions: Record<InspectorElementKind, InspectorCapabilities> = {
+  container: { kind: "container", content: "none", layout: true, typography: "descendants", color: { foreground: true, background: true }, border: true },
+  text: { kind: "text", content: "text", layout: true, typography: "self", color: { foreground: true, background: true }, border: true },
+  link: { kind: "link", content: "text", layout: true, typography: "self", color: { foreground: true, background: true }, border: true },
+  button: { kind: "button", content: "text", layout: true, typography: "self", color: { foreground: true, background: true }, border: true },
+  "form-control": { kind: "form-control", content: "none", layout: true, typography: "self", color: { foreground: true, background: true }, border: true },
+  list: { kind: "list", content: "none", layout: true, typography: "descendants", color: { foreground: true, background: true }, border: true },
+  "list-item": { kind: "list-item", content: "text", layout: true, typography: "self", color: { foreground: true, background: true }, border: true },
+  table: { kind: "table", content: "none", layout: true, typography: "descendants", color: { foreground: true, background: true }, border: true },
+  "table-row": { kind: "table-row", content: "none", layout: true, typography: "descendants", color: { foreground: true, background: true }, border: true },
+  "table-cell": { kind: "table-cell", content: "text", layout: true, typography: "self", color: { foreground: true, background: true }, border: true },
+  photo: { kind: "photo", content: "none", layout: true, typography: "none", color: { foreground: false, background: true }, border: true },
+  video: { kind: "video", content: "none", layout: true, typography: "none", color: { foreground: false, background: true }, border: true },
+  svg: { kind: "svg", content: "none", layout: true, typography: "none", color: { foreground: false, background: true }, border: true },
+  "svg-shape": { kind: "svg-shape", content: "none", layout: false, typography: "none", color: { foreground: false, background: false }, border: false },
+  unknown: { kind: "unknown", content: "none", layout: true, typography: "descendants", color: { foreground: true, background: true }, border: true },
+};
+
+const inspectorContainerTags = new Set(["div", "main", "section", "header", "nav", "aside", "footer", "form"]);
+const inspectorTextTags = new Set(["p", "span", "h1", "h2", "h3", "h4", "h5", "h6", "label", "small", "strong", "em", "code"]);
+const inspectorFormControlTags = new Set(["input", "textarea"]);
+const inspectorSvgShapeTags = new Set(["path", "rect", "circle", "line", "polyline", "polygon"]);
+
+function getInspectorCapabilities(selection: SelectedElement): InspectorCapabilities {
+  const tagName = selection.tagName.toLowerCase();
+
+  if (tagName === "img") {
+    return selection.insertionId
+      ? { ...inspectorCapabilityDefinitions.photo, content: "image" }
+      : inspectorCapabilityDefinitions.photo;
+  }
+  if (tagName === "video") return inspectorCapabilityDefinitions.video;
+  if (tagName === "svg") return inspectorCapabilityDefinitions.svg;
+  if (inspectorSvgShapeTags.has(tagName)) return inspectorCapabilityDefinitions["svg-shape"];
+  if (inspectorFormControlTags.has(tagName)) return inspectorCapabilityDefinitions["form-control"];
+  if (tagName === "ul" || tagName === "ol") return inspectorCapabilityDefinitions.list;
+  if (tagName === "li") return selection.textEditable ? inspectorCapabilityDefinitions["list-item"] : inspectorCapabilityDefinitions.list;
+  if (tagName === "table") return inspectorCapabilityDefinitions.table;
+  if (tagName === "tr") return inspectorCapabilityDefinitions["table-row"];
+  if (tagName === "td" || tagName === "th") return selection.textEditable ? inspectorCapabilityDefinitions["table-cell"] : inspectorCapabilityDefinitions.table;
+  if (tagName === "a") return selection.textEditable ? inspectorCapabilityDefinitions.link : inspectorCapabilityDefinitions.container;
+  if (tagName === "button") return selection.textEditable ? inspectorCapabilityDefinitions.button : inspectorCapabilityDefinitions.container;
+  if (selection.textEditable && selection.text.trim()) return inspectorCapabilityDefinitions.text;
+  if (inspectorTextTags.has(tagName)) return inspectorCapabilityDefinitions.container;
+  if (inspectorContainerTags.has(tagName)) return inspectorCapabilityDefinitions.container;
+
+  return inspectorCapabilityDefinitions.unknown;
+}
+
 type PreviewChange = {
   selectionId: string | null;
   insertionId?: string | null;
@@ -935,13 +997,15 @@ function ColorField({ label, name, property, value, onApplyStyle, onResetStyle }
   );
 }
 
-function ColorGroup({ selection, onApplyStyle, onResetStyle }: { selection: SelectedElement; onApplyStyle: (property: string, value: string) => void; onResetStyle: (property: string) => void }) {
+function ColorGroup({ selection, onApplyStyle, onResetStyle, foreground, background }: { selection: SelectedElement; onApplyStyle: (property: string, value: string) => void; onResetStyle: (property: string) => void; foreground: boolean; background: boolean }) {
+  if (!foreground && !background) return null;
+
   return (
     <section className={inspectorSectionClass}>
       <h3 className={inspectorTitleClass}>Color</h3>
       <div className="space-y-1">
-        <ColorField label="Foreground" name="foreground" property="color" value={selection.styles.color} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
-        <ColorField label="Background" name="background" property="backgroundColor" value={selection.styles.backgroundColor} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
+        {foreground ? <ColorField label="Foreground" name="foreground" property="color" value={selection.styles.color} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} /> : null}
+        {background ? <ColorField label="Background" name="background" property="backgroundColor" value={selection.styles.backgroundColor} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} /> : null}
       </div>
     </section>
   );
@@ -2584,6 +2648,7 @@ function PropertiesSidebar({
   const buildIndicator = getBuildIndicator(codexAvailability, Boolean(previewChanges.length));
   const isBuilding = codexStatus.state === "working";
   const buildBlocked = !isBuilding && (!isDesktop || codexAvailability.state !== "available" || !projectPath || !previewChanges.length);
+  const capabilities = selection ? getInspectorCapabilities(selection) : inspectorCapabilityDefinitions.unknown;
 
   return (
     <aside className={`flex h-full w-72 shrink-0 flex-col border-l border-border bg-white text-foreground ${className || ""}`}>
@@ -2690,12 +2755,12 @@ function PropertiesSidebar({
             {selection.react && typeof selection.react.props === "object" && selection.react.props !== null ? (
               <PropertyGroup title="React props" values={selection.react.props as Record<string, unknown>} />
             ) : null}
-            {selection.textEditable && selection.text.trim() ? <ContentGroup value={selection.text} onCommit={onApplyText} onReset={onResetText} /> : null}
-            <ImageSourceGroup selection={selection} onReplace={onReplaceImage} />
-            <LayoutGroup key={selection.selectionId ?? `${selection.tagName}-${selection.id ?? "selected"}`} selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
-            <TypographyGroup selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
-            <ColorGroup selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
-            <BorderGroup selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
+            {capabilities.content === "text" && selection.text.trim() ? <ContentGroup value={selection.text} onCommit={onApplyText} onReset={onResetText} /> : null}
+            {capabilities.content === "image" ? <ImageSourceGroup selection={selection} onReplace={onReplaceImage} /> : null}
+            {capabilities.layout ? <LayoutGroup key={selection.selectionId ?? `${selection.tagName}-${selection.id ?? "selected"}`} selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} /> : null}
+            {capabilities.typography !== "none" ? <TypographyGroup selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} /> : null}
+            {capabilities.color.foreground || capabilities.color.background ? <ColorGroup selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} foreground={capabilities.color.foreground} background={capabilities.color.background} /> : null}
+            {capabilities.border ? <BorderGroup selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} /> : null}
           </>
         ) : (
           <>
