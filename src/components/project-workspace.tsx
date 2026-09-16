@@ -29,6 +29,8 @@ import { toolCursor, type ToolName } from "@/lib/tool-cursors";
 
 type SelectedElement = {
   selectionId: string | null;
+  insertionId?: string | null;
+  imageFileName?: string | null;
   tagName: string;
   id: string | null;
   className: string;
@@ -58,12 +60,16 @@ type PreviewChange = {
     intent?: "replace-primary-font-family";
     preserveFallbacks?: boolean;
     primaryFont?: string;
-    elementType?: "text" | "box";
-    elementTagName?: "p" | "div";
+    elementType?: "text" | "box" | "image";
+    elementTagName?: "p" | "div" | "img";
     content?: string;
     position?: { left: number; top: number };
     size?: { width: number; height: number };
     fitContents?: boolean;
+    assetPath?: string | null;
+    assetFileName?: string | null;
+    placeholderSrc?: string | null;
+    alt?: string;
     sourceContext?: unknown;
     previewParent?: unknown;
   }>;
@@ -75,7 +81,7 @@ type LayerNode = {
   name: string;
   detail: string | null;
   children: LayerNode[];
-  inserted?: "text" | "box" | null;
+  inserted?: "text" | "box" | "image" | null;
 };
 
 type LayerDropTarget = {
@@ -90,6 +96,7 @@ const workspaceTools: Array<{ name: ToolName; label: string; shortcut: string; i
   { name: "select", label: "Select", shortcut: "S", icon: NavigationArrowIcon, weight: "regular" },
   { name: "text", label: "Text", shortcut: "T", icon: CursorTextIcon, weight: "regular" },
   { name: "div", label: "Div", shortcut: "D", icon: RectangleIcon, weight: "regular" },
+  { name: "image", label: "Photo", shortcut: "P", icon: ImageIcon, weight: "regular" },
 ];
 
 type CanvasWheelInput = {
@@ -406,6 +413,25 @@ function ContentGroup({
             <ArrowCounterClockwiseIcon className="size-3.5" />
           </Button>
         </Hint>
+      </div>
+    </section>
+  );
+}
+
+function ImageSourceGroup({ selection, onReplace }: { selection: SelectedElement; onReplace: () => void }) {
+  if (selection.tagName !== "img" || !selection.insertionId) return null;
+
+  return (
+    <section className={inspectorSectionClass}>
+      <h3 className={inspectorTitleClass}>Content</h3>
+      <div className="flex items-center gap-1.5">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-[5px] border border-border bg-background px-2 py-1.5 text-xs text-muted-foreground">
+          <ImageIcon className="size-3.5 shrink-0" aria-hidden="true" />
+          <span className="truncate">{selection.imageFileName || "Placeholder"}</span>
+        </div>
+        <Button type="button" variant="outline" size="sm" className="h-7 shrink-0 rounded-[5px] px-2 text-xs font-normal shadow-none" onClick={onReplace}>
+          Upload
+        </Button>
       </div>
     </section>
   );
@@ -2447,7 +2473,7 @@ function WorkspaceToolbar({
 }) {
   return (
     <aside className={`flex h-full w-11 shrink-0 flex-col items-center border-r border-border bg-white pt-2 ${className || ""}`} aria-label="Workspace tools">
-      {workspaceTools.filter(({ name }) => isDesktop || name !== "div").map(({ name, label, shortcut, icon: Icon, weight }) => (
+      {workspaceTools.filter(({ name }) => isDesktop || (name !== "div" && name !== "image")).map(({ name, label, shortcut, icon: Icon, weight }) => (
         <Hint key={name} content={`${formatTooltipName(label)} (${shortcut})`}>
           <Button
             type="button"
@@ -2528,6 +2554,7 @@ function PropertiesSidebar({
   onResetStyle,
   onApplyText,
   onResetText,
+  onReplaceImage,
   onResetAll,
 }: {
   className?: string;
@@ -2551,6 +2578,7 @@ function PropertiesSidebar({
   onResetStyle: (property: string) => void;
   onApplyText: (value: string) => void;
   onResetText: () => void;
+  onReplaceImage: () => void;
   onResetAll: () => void;
 }) {
   const buildIndicator = getBuildIndicator(codexAvailability, Boolean(previewChanges.length));
@@ -2663,6 +2691,7 @@ function PropertiesSidebar({
               <PropertyGroup title="React props" values={selection.react.props as Record<string, unknown>} />
             ) : null}
             {selection.textEditable && selection.text.trim() ? <ContentGroup value={selection.text} onCommit={onApplyText} onReset={onResetText} /> : null}
+            <ImageSourceGroup selection={selection} onReplace={onReplaceImage} />
             <LayoutGroup key={selection.selectionId ?? `${selection.tagName}-${selection.id ?? "selected"}`} selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
             <TypographyGroup selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
             <ColorGroup selection={selection} onApplyStyle={onApplyStyle} onResetStyle={onResetStyle} />
@@ -3286,6 +3315,11 @@ export function ProjectWorkspace({
       selectTool("div");
       return;
     }
+    if (input.code === "KeyP" && isDesktop && !hasModifier) {
+      input.preventDefault?.();
+      selectTool("image");
+      return;
+    }
     if (input.code === "Digit0" || input.code === "Numpad0") {
       input.preventDefault?.();
       fitCanvas();
@@ -3374,6 +3408,25 @@ export function ProjectWorkspace({
     sendCanvasMessage("formia:reset-overrides");
     setStagedPreviewChanges([]);
     setCodexStatus({ state: "idle", message: "" });
+  }
+
+  async function replaceSelectedImage() {
+    if (!isDesktop || selection?.tagName !== "img" || !selection.insertionId || !window.formiaDesktop) return;
+
+    try {
+      const image = await window.formiaDesktop.selectImage();
+      if (!image) return;
+
+      sendCanvasMessage("formia:replace-image", {
+        insertionId: selection.insertionId,
+        src: image.dataUrl,
+        sourcePath: image.sourcePath,
+        fileName: image.fileName,
+        mimeType: image.mimeType,
+      });
+    } catch (error) {
+      setCodexStatus({ state: "failed", message: desktopErrorMessage(error, "Could not choose an image.") });
+    }
   }
 
   async function buildWithCodex() {
@@ -3619,6 +3672,7 @@ export function ProjectWorkspace({
         onResetStyle={(property) => sendCanvasMessage("formia:reset-style", property)}
         onApplyText={(value) => sendCanvasMessage("formia:apply-text", value)}
         onResetText={() => sendCanvasMessage("formia:reset-text")}
+        onReplaceImage={() => void replaceSelectedImage()}
         onResetAll={resetPreview}
       />
       </div>

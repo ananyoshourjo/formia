@@ -18,14 +18,15 @@ app.whenReady().then(async () => {
   const input = (canvas, type, x, y) => canvas.sendInputEvent({ type, x, y, button: 'left', clickCount: 1 });
   const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
   const hostEvaluate = (code) => hostPage.executeJavaScript(code);
-  const hostMarkup = `<webview id="canvas" style="display:block;width:900px;height:650px" preload="${preload}" src="data:text/html,${encodeURIComponent(fixture)}"></webview><script>window.layerMessages=[];document.querySelector('#canvas').addEventListener('ipc-message',event=>window.layerMessages.push({channel:event.channel,args:event.args}));</script>`;
+  const hostMarkup = `<webview id="canvas" style="display:block;width:900px;height:650px" preload="${preload}" src="data:text/html,${encodeURIComponent(fixture)}"></webview><script>window.layerMessages=[];window.canvasReady=false;const canvasElement=document.querySelector('#canvas');canvasElement.addEventListener('dom-ready',()=>{window.canvasReady=true});canvasElement.addEventListener('ipc-message',event=>window.layerMessages.push({channel:event.channel,args:event.args}));</script>`;
 
   try {
     await hostPage.loadURL('data:text/html,' + encodeURIComponent(hostMarkup));
     let canvasId = null;
     for (let attempt = 0; attempt < 30 && !canvasId; attempt += 1) {
       await settle();
-      canvasId = await hostEvaluate('document.querySelector("#canvas").getWebContentsId()');
+      const canvasState = await hostEvaluate('({ id: document.querySelector("#canvas").getWebContentsId(), ready: window.canvasReady })');
+      if (canvasState.ready) canvasId = canvasState.id;
     }
     assert.ok(canvasId, 'webview becomes available');
     const canvas = webContents.fromId(canvasId);

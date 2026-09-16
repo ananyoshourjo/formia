@@ -47,7 +47,8 @@ export type CanvasMessage =
   | { channel: "formia:apply-class"; args: [string] }
   | { channel: "formia:reset-class"; args: [] }
   | { channel: "formia:apply-text"; args: [string] }
-  | { channel: "formia:reset-text"; args: [] };
+  | { channel: "formia:reset-text"; args: [] }
+  | { channel: "formia:replace-image"; args: [{ insertionId: string; src: string; sourcePath: string; fileName: string; mimeType: string }] };
 
 export type CanvasMessageChannel = CanvasMessage["channel"];
 export type CanvasMessageArgs<Channel extends CanvasMessageChannel> = Extract<CanvasMessage, { channel: Channel }>["args"];

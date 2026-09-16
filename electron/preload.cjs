@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld("formiaDesktop", {
   getProjectServerStatus: () => ipcRenderer.invoke("formia:get-project-server-status"),
   restartProjectServer: () => ipcRenderer.invoke("formia:restart-project-server"),
   stopProjectServer: () => ipcRenderer.invoke("formia:stop-project-server"),
+  selectImage: () => ipcRenderer.invoke("formia:select-image"),
   buildWithCodex: (payload) => ipcRenderer.invoke("formia:codex-build", payload),
   cancelCodexBuild: () => ipcRenderer.invoke("formia:cancel-codex-build"),
   getCodexAvailability: () => ipcRenderer.invoke("formia:get-codex-availability"),
