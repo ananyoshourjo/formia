@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## [1.8.0] - 2026-09-16
+
+### Added
+
+- Added capability-driven Properties panel behavior that adapts its sections to the selected element type.
+- Added semantic inspector support for text, containers, links, buttons, form controls, lists, tables, media, and SVG elements.
+
+### Changed
+
+- Photo elements now show only relevant properties, including Content, Layout, Background color, and Border, without Typography or Foreground color controls.
+- Layout controls remain contextual, showing Flex and Grid container or item options only when the selected element's layout context supports them.
+
 ## [1.7.0] - 2026-09-16
 
 ### Added
