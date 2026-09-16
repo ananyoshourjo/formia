@@ -1,4 +1,4 @@
-export type ToolName = "interact" | "select" | "text" | "div";
+export type ToolName = "interact" | "select" | "text" | "div" | "image";
 
 const cursorPaths: Record<ToolName, { path: string; hotspot: [number, number] }> = {
   interact: {
@@ -14,6 +14,10 @@ const cursorPaths: Record<ToolName, { path: string; hotspot: [number, number] }>
     hotspot: [8, 8],
   },
   div: {
+    path: "M216,120H136V40a8,8,0,0,0-16,0v80H40a8,8,0,0,0,0,16h80v80a8,8,0,0,0,16,0V136h80a8,8,0,0,0,0-16Z",
+    hotspot: [8, 8],
+  },
+  image: {
     path: "M216,120H136V40a8,8,0,0,0-16,0v80H40a8,8,0,0,0,0,16h80v80a8,8,0,0,0,16,0V136h80a8,8,0,0,0,0-16Z",
     hotspot: [8, 8],
   },

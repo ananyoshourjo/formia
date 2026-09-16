@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## [1.7.0] - 2026-09-16
+
+### Added
+
+- Added a desktop Photo tool that inserts lightweight placeholder images by clicking or lets you draw an explicit image size by dragging.
+- Added uploaded image content, intrinsic sizing for click-created photos, and preserved drawn sizing for drag-created photos.
+- Added Photo layers to the Layers panel with reparenting support and source-level asset staging during Build.
+
+### Changed
+
+- Renamed the desktop Image tool to Photo (`P`) and refined its Content panel labels to Placeholder and Upload.
+
 ## [1.6.0] - 2026-09-15
 
 ### Added

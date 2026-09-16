@@ -73,13 +73,18 @@ let textEditingState = null;
 let selectionSequence = 0;
 let insertedTextSequence = 0;
 let insertedBoxSequence = 0;
+let insertedImageSequence = 0;
 let layerTreeObserver = null;
 let layerTreeTimer = null;
 
 const selectionAttribute = "data-formia-selection-id";
 const insertedTextAttribute = "data-formia-inserted-text";
 const insertedBoxAttribute = "data-formia-inserted-box";
-const canvasTextDropExcludedTags = new Set(["A", "B", "BR", "CODE", "EM", "H1", "H2", "H3", "H4", "H5", "H6", "I", "INPUT", "LABEL", "P", "PRE", "S", "SELECT", "SMALL", "SPAN", "STRONG", "TEXTAREA", "U"]);
+const insertedImageAttribute = "data-formia-inserted-image";
+const imagePlaceholderSrc = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200"><rect width="320" height="200" fill="#eef0f2"/><path d="M0 160l72-72 46 46 40-40 114 114H0z" fill="#d7dce1"/><circle cx="226" cy="64" r="18" fill="#d7dce1"/><rect x="72" y="158" width="176" height="8" rx="4" fill="#cbd1d6"/></svg>')}`;
+const defaultInsertedImageWidth = 240;
+const defaultInsertedImageHeight = 160;
+const canvasTextDropExcludedTags = new Set(["A", "B", "BR", "CODE", "EM", "H1", "H2", "H3", "H4", "H5", "H6", "I", "IMG", "INPUT", "LABEL", "P", "PRE", "S", "SELECT", "SMALL", "SPAN", "STRONG", "TEXTAREA", "U"]);
 const canvasTextDropContainerDisplays = new Set(["block", "flow-root", "flex", "grid", "inline-block", "inline-flex", "inline-grid", "list-item", "table", "table-cell", "table-caption", "table-row"]);
 const layerTreeExcludedTags = new Set(["SCRIPT", "STYLE", "LINK", "META", "TITLE", "NOSCRIPT", "TEMPLATE", "PATH", "CIRCLE", "RECT", "LINE", "POLYLINE", "POLYGON"]);
 const maximumLayerTreeNodes = 800;
@@ -157,11 +162,13 @@ const deletedElements = new Map();
 const duplicatedElements = new Map();
 const insertedTextElements = new Map();
 const insertedBoxElements = new Map();
+const insertedImageElements = new Map();
 let isReapplyingStructuralMoves = false;
 let isRebindingPreviewOverrides = false;
 let layerPointerDrag = null;
 let textPositionDrag = null;
 let divInsertionDrag = null;
+let imageInsertionDrag = null;
 let suppressNextClick = false;
 let canvasDropTarget = null;
 
@@ -170,12 +177,13 @@ const toolCursorPaths = {
   select: "M248,121.58a15.76,15.76,0,0,1-11.29,15l-.2.06-78,21.84-21.84,78-.06.2a15.77,15.77,0,0,1-15,11.29h-.3a15.77,15.77,0,0,1-15.07-10.67L41,61.41a1,1,0,0,1-.05-.16A16,16,0,0,1,61.25,40.9l.16.05,175.92,65.26A15.78,15.78,0,0,1,248,121.58Z",
   text: "M184,208a8,8,0,0,1-8,8H160a40,40,0,0,1-32-16,40,40,0,0,1-32,16H80a8,8,0,0,1,0-16H96a24,24,0,0,0,24-24V136H104a8,8,0,0,1,0-16h16V80A24,24,0,0,0,96,56H80a8,8,0,0,1,0-16H96a40,40,0,0,1,32,16,40,40,0,0,1,32-16h16a8,8,0,0,1,0,16H160a24,24,0,0,0-24,24v40h16a8,8,0,0,1,0,16H136v40a24,24,0,0,0,24,24h16A8,8,0,0,1,184,208Z",
   div: "M216,120H136V40a8,8,0,0,0-16,0v80H40a8,8,0,0,0,0,16h80v80a8,8,0,0,0,16,0V136h80a8,8,0,0,0,0-16Z",
+  image: "M216,120H136V40a8,8,0,0,0-16,0v80H40a8,8,0,0,0,0,16h80v80a8,8,0,0,0,16,0V136h80a8,8,0,0,0,0-16Z",
 };
 
 const cursorStyle = document.createElement("style");
 
 function cursorForTool(tool) {
-  const hotspot = tool === "text" || tool === "div" ? "8 8" : "2 2";
+  const hotspot = tool === "text" || tool === "div" || tool === "image" ? "8 8" : "2 2";
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 256 256"><path fill="#0d0d0d" d="${toolCursorPaths[tool]}"/></svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${hotspot}, auto`;
 }
@@ -582,6 +590,45 @@ function rebindPreviewOverrides() {
       }
     }
 
+    for (const entry of Array.from(insertedImageElements.values())) {
+      const previous = entry.element;
+      if (previous?.isConnected) {
+        entry.inlineStyle = previous.getAttribute("style") || entry.inlineStyle;
+        entry.selectionId = previous.getAttribute(selectionAttribute) || entry.selectionId;
+        entry.src = previous.getAttribute("src") || entry.src;
+        continue;
+      }
+
+      if (previous instanceof Element) {
+        entry.inlineStyle = previous.getAttribute("style") || entry.inlineStyle;
+        entry.selectionId = previous.getAttribute(selectionAttribute) || entry.selectionId;
+        entry.src = previous.getAttribute("src") || entry.src;
+      }
+
+      const parent = entry.parent?.isConnected
+        ? entry.parent
+        : findPreviewReplacement(entry.parentIdentity) || findCanvasInsertionParent();
+      if (!(parent instanceof Element)) continue;
+
+      const inserted = createInsertedImageNode(entry, parent);
+      insertedImageElements.delete(previous);
+      insertedImageElements.set(inserted, entry);
+      entry.element = inserted;
+      entry.parent = parent;
+      entry.parentIdentity = elementIdentity(parent);
+
+      for (const move of structuralMoves.values()) {
+        if (move.element !== previous) continue;
+        move.element = inserted;
+        move.elementIdentity = elementIdentity(inserted);
+      }
+
+      if (selectedElement === previous) {
+        selectedElement = inserted;
+        selectedElementIdentity = elementIdentity(inserted);
+      }
+    }
+
     if (selectedElement instanceof Element && selectedElement.isConnected) {
       ensureLayerSelectionId(selectedElement);
       moveOverlay(selectedElement);
@@ -709,8 +756,12 @@ function isInsertedBoxLayer(element) {
   return element instanceof Element && element.hasAttribute(insertedBoxAttribute);
 }
 
+function isInsertedImageLayer(element) {
+  return element instanceof Element && element.hasAttribute(insertedImageAttribute);
+}
+
 function isInsertedLayer(element) {
-  return isInsertedTextLayer(element) || isInsertedBoxLayer(element);
+  return isInsertedTextLayer(element) || isInsertedBoxLayer(element) || isInsertedImageLayer(element);
 }
 
 function findCanvasInsertionParent() {
@@ -855,6 +906,28 @@ function createInsertedBoxNode(entry, parent) {
   return element;
 }
 
+function createInsertedImageNode(entry, parent) {
+  const element = document.createElement("img");
+  element.setAttribute(insertedImageAttribute, entry.insertionId);
+  element.setAttribute("alt", entry.alt || "");
+  element.setAttribute("src", entry.src || imagePlaceholderSrc);
+
+  if (entry.inlineStyle) {
+    element.setAttribute("style", entry.inlineStyle);
+  } else {
+    element.style.setProperty("position", "absolute", "important");
+    element.style.setProperty("width", `${Math.max(1, Number(entry.width) || defaultInsertedImageWidth)}px`, "important");
+    element.style.setProperty("height", `${Math.max(1, Number(entry.height) || defaultInsertedImageHeight)}px`, "important");
+    element.style.setProperty("display", "block", "important");
+    element.style.setProperty("object-fit", "cover", "important");
+    element.style.setProperty("box-sizing", "border-box", "important");
+  }
+
+  if (entry.selectionId) element.setAttribute(selectionAttribute, entry.selectionId);
+  parent.appendChild(element);
+  return element;
+}
+
 function insertTextAtPoint(clientX, clientY, anchor) {
   const parent = findCanvasInsertionParent();
   if (!(parent instanceof Element)) return false;
@@ -921,6 +994,45 @@ function insertBoxAtPoint(clientX, clientY, { width = 100, height = 100, fitCont
   return element;
 }
 
+function insertImageAtPoint(clientX, clientY, anchor, { width = defaultInsertedImageWidth, height = defaultInsertedImageHeight, fitContents = true } = {}) {
+  const parent = findCanvasInsertionParent();
+  if (!(parent instanceof Element)) return false;
+
+  finishTextEditing();
+  const entry = {
+    insertionId: `formia-image-${++insertedImageSequence}`,
+    element: null,
+    parent,
+    parentIdentity: elementIdentity(parent),
+    sourceContext: insertionSourceContext(anchor),
+    inlineStyle: "",
+    selectionId: null,
+    width,
+    height,
+    fitContents,
+    src: imagePlaceholderSrc,
+    assetPath: null,
+    fileName: null,
+    mimeType: null,
+    alt: "",
+  };
+  const element = createInsertedImageNode(entry, parent);
+  const position = positionForPoint(element, clientX, clientY);
+  element.style.setProperty("left", `${position.left}px`, "important");
+  element.style.setProperty("top", `${position.top}px`, "important");
+  entry.element = element;
+  entry.inlineStyle = element.getAttribute("style") || "";
+  entry.left = position.left;
+  entry.top = position.top;
+  insertedImageElements.set(element, entry);
+
+  selectElement(element);
+  moveOverlay(element);
+  ipcRenderer.sendToHost("formia:element-selected", selectionPayload(element));
+  sendLayerTree();
+  return element;
+}
+
 function updateInsertedBoxBounds(element, startX, startY, endX, endY) {
   const entry = insertedBoxElements.get(element);
   if (!(element instanceof Element) || !entry) return false;
@@ -939,6 +1051,94 @@ function updateInsertedBoxBounds(element, startX, startY, endX, endY) {
   entry.top = position.top;
   entry.width = width;
   entry.height = height;
+  return true;
+}
+
+function updateInsertedImageBounds(element, startX, startY, endX, endY) {
+  const entry = insertedImageElements.get(element);
+  if (!(element instanceof Element) || !entry) return false;
+
+  const left = Math.min(startX, endX);
+  const top = Math.min(startY, endY);
+  const position = positionForPoint(element, left, top);
+  const width = Math.max(1, Math.round(Math.abs(endX - startX)));
+  const height = Math.max(1, Math.round(Math.abs(endY - startY)));
+  element.style.setProperty("left", `${position.left}px`, "important");
+  element.style.setProperty("top", `${position.top}px`, "important");
+  element.style.setProperty("width", `${width}px`, "important");
+  element.style.setProperty("height", `${height}px`, "important");
+  entry.inlineStyle = element.getAttribute("style") || entry.inlineStyle;
+  entry.left = position.left;
+  entry.top = position.top;
+  entry.width = width;
+  entry.height = height;
+  return true;
+}
+
+function syncInsertedImageIntrinsicSize(entry) {
+  if (!entry.fitContents || !(entry.element instanceof HTMLImageElement)) return false;
+
+  const naturalWidth = Number(entry.element.naturalWidth);
+  const naturalHeight = Number(entry.element.naturalHeight);
+  if (!Number.isFinite(naturalWidth) || !Number.isFinite(naturalHeight) || naturalWidth <= 0 || naturalHeight <= 0) return false;
+
+  const width = Math.max(1, Math.round(naturalWidth));
+  const height = Math.max(1, Math.round(naturalHeight));
+
+  entry.element.style.setProperty("width", `${width}px`, "important");
+  entry.element.style.setProperty("height", `${height}px`, "important");
+  entry.inlineStyle = entry.element.getAttribute("style") || entry.inlineStyle;
+  entry.width = width;
+  entry.height = height;
+  return true;
+}
+
+function notifyInsertedImageReplacement(entry) {
+  if (!(entry.element instanceof Element) || !entry.element.isConnected) return;
+
+  selectElement(entry.element);
+  moveOverlay(entry.element);
+  ipcRenderer.sendToHost("formia:element-updated", selectionPayload(entry.element));
+  sendLayerTree();
+}
+
+function finishInsertedImageReplacement(entry) {
+  syncInsertedImageIntrinsicSize(entry);
+  notifyInsertedImageReplacement(entry);
+}
+
+function replaceInsertedImage(payload) {
+  const insertionId = typeof payload?.insertionId === "string" ? payload.insertionId : "";
+  const source = typeof payload?.src === "string" ? payload.src : "";
+  const sourcePath = typeof payload?.sourcePath === "string" ? payload.sourcePath : "";
+  if (!insertionId || !/^data:image\/[a-z0-9.+-]+(?:;[^,]*)?,/i.test(source) || !sourcePath) return false;
+
+  const entry = Array.from(insertedImageElements.values()).find((candidate) => candidate.insertionId === insertionId);
+  if (!entry || !(entry.element instanceof Element)) return false;
+
+  const fileName = typeof payload?.fileName === "string" && payload.fileName.trim() ? payload.fileName.trim() : null;
+  entry.src = source;
+  entry.assetPath = sourcePath;
+  entry.fileName = fileName;
+  entry.mimeType = typeof payload?.mimeType === "string" ? payload.mimeType : null;
+  entry.alt = fileName || "";
+  entry.element.setAttribute("alt", entry.alt);
+  entry.inlineStyle = entry.element.getAttribute("style") || entry.inlineStyle;
+
+  let loaded = false;
+  const handleLoad = () => {
+    if (loaded) return;
+    loaded = true;
+    finishInsertedImageReplacement(entry);
+  };
+  if (entry.fitContents) entry.element.addEventListener("load", handleLoad, { once: true });
+  entry.element.setAttribute("src", source);
+
+  if (entry.fitContents && entry.element instanceof HTMLImageElement && entry.element.complete && entry.element.naturalWidth > 0) {
+    handleLoad();
+  } else if (!loaded) {
+    notifyInsertedImageReplacement(entry);
+  }
   return true;
 }
 
@@ -976,6 +1176,11 @@ function moveElementTo(element, targetParent, beforeElement = null) {
   if (insertedBox) {
     insertedBox.parent = targetParent;
     insertedBox.parentIdentity = elementIdentity(targetParent);
+  }
+  const insertedImage = insertedImageElements.get(element);
+  if (insertedImage) {
+    insertedImage.parent = targetParent;
+    insertedImage.parentIdentity = elementIdentity(targetParent);
   }
 
   syncInsertedBoxSize(snapshot.parent);
@@ -1112,7 +1317,7 @@ function moveTextPositionDrag(event) {
   const top = Math.round(drag.initialTop + deltaY);
   drag.element.style.setProperty("left", `${left}px`, "important");
   drag.element.style.setProperty("top", `${top}px`, "important");
-  const entry = insertedTextElements.get(drag.element) || insertedBoxElements.get(drag.element);
+  const entry = insertedTextElements.get(drag.element) || insertedBoxElements.get(drag.element) || insertedImageElements.get(drag.element);
   if (entry) {
     entry.inlineStyle = drag.element.getAttribute("style") || entry.inlineStyle;
     entry.left = left;
@@ -1153,7 +1358,7 @@ function endTextPositionDrag(event) {
     drag.element.style.setProperty("left", `${position.left}px`, "important");
     drag.element.style.setProperty("top", `${position.top}px`, "important");
 
-    const entry = insertedTextElements.get(drag.element) || insertedBoxElements.get(drag.element);
+    const entry = insertedTextElements.get(drag.element) || insertedBoxElements.get(drag.element) || insertedImageElements.get(drag.element);
     if (entry) {
       entry.inlineStyle = drag.element.getAttribute("style") || entry.inlineStyle;
       entry.left = position.left;
@@ -1244,6 +1449,79 @@ function endDivInsertionDrag(event) {
   return true;
 }
 
+function beginImageInsertionDrag(event) {
+  if (activeTool !== "image" || event.button !== 0 || imageInsertionDrag || layerPointerDrag || textPositionDrag || divInsertionDrag) return;
+  const target = event.target;
+  if (!(target instanceof Element) || target === overlay || target === hoverOverlay || target === dropIndicator || target === dropTargetOverlay) return;
+
+  imageInsertionDrag = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    moved: false,
+    element: null,
+    captureTarget: target,
+  };
+  target.setPointerCapture?.(event.pointerId);
+}
+
+function moveImageInsertionDrag(event) {
+  if (!imageInsertionDrag || event.pointerId !== imageInsertionDrag.pointerId) return false;
+
+  const drag = imageInsertionDrag;
+  const deltaX = event.clientX - drag.startX;
+  const deltaY = event.clientY - drag.startY;
+  if (!drag.moved && Math.hypot(deltaX, deltaY) < 5) return true;
+
+  if (!drag.moved) {
+    drag.moved = true;
+    suppressNextClick = true;
+    const left = Math.min(drag.startX, event.clientX);
+    const top = Math.min(drag.startY, event.clientY);
+    drag.element = insertImageAtPoint(left, top, drag.captureTarget, {
+      width: Math.max(1, Math.round(Math.abs(deltaX))),
+      height: Math.max(1, Math.round(Math.abs(deltaY))),
+      fitContents: false,
+    });
+  }
+
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (drag.element instanceof Element) {
+    updateInsertedImageBounds(drag.element, drag.startX, drag.startY, event.clientX, event.clientY);
+    moveOverlay(drag.element);
+  }
+  return true;
+}
+
+function endImageInsertionDrag(event) {
+  if (!imageInsertionDrag || event.pointerId !== imageInsertionDrag.pointerId) return false;
+
+  const drag = imageInsertionDrag;
+  imageInsertionDrag = null;
+  drag.captureTarget?.releasePointerCapture?.(event.pointerId);
+  hideDropIndicator();
+  if (!drag.moved || !(drag.element instanceof Element)) return true;
+
+  if (event.type === "pointercancel") {
+    suppressNextClick = false;
+    insertedImageElements.delete(drag.element);
+    if (selectedElement === drag.element) clearSelection();
+    drag.element.remove();
+    sendLayerTree();
+    sendPreviewState();
+    return true;
+  }
+
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  updateInsertedImageBounds(drag.element, drag.startX, drag.startY, event.clientX, event.clientY);
+  moveOverlay(drag.element);
+  sendUpdatedSelection();
+  sendLayerTree();
+  return true;
+}
+
 function clearLayerSelectionIds(element) {
   element.removeAttribute(selectionAttribute);
   element.querySelectorAll(`[${selectionAttribute}]`).forEach((child) => child.removeAttribute(selectionAttribute));
@@ -1258,11 +1536,13 @@ function deleteSelectedLayer() {
   const details = inspectElement(element);
   const insertedText = insertedTextElements.get(element);
   const insertedBox = insertedBoxElements.get(element);
+  const insertedImage = insertedImageElements.get(element);
   const duplicated = duplicatedElements.get(element);
 
   structuralMoves.delete(element);
   if (insertedText) insertedTextElements.delete(element);
   else if (insertedBox) insertedBoxElements.delete(element);
+  else if (insertedImage) insertedImageElements.delete(element);
   else if (duplicated) duplicatedElements.delete(element);
   else {
     deletedElements.set(element, {
@@ -1275,9 +1555,10 @@ function deleteSelectedLayer() {
     });
   }
 
-  for (const descendant of element.querySelectorAll(`[${insertedTextAttribute}], [${insertedBoxAttribute}]`)) {
+  for (const descendant of element.querySelectorAll(`[${insertedTextAttribute}], [${insertedBoxAttribute}], [${insertedImageAttribute}]`)) {
     insertedTextElements.delete(descendant);
     insertedBoxElements.delete(descendant);
+    insertedImageElements.delete(descendant);
     structuralMoves.delete(descendant);
   }
 
@@ -1454,6 +1735,11 @@ function resetAllOverrides() {
   }
   insertedBoxElements.clear();
 
+  for (const { element } of Array.from(insertedImageElements.values()).reverse()) {
+    if (element.isConnected) element.remove();
+  }
+  insertedImageElements.clear();
+
   for (const { element, originalParent, originalIndex } of Array.from(deletedElements.values()).reverse()) {
     if (!element.isConnected && originalParent?.isConnected) {
       const siblings = Array.from(originalParent.children);
@@ -1568,7 +1854,7 @@ function buildLayerNode(element, state, depth = 0) {
     name: componentName || element.tagName.toLowerCase(),
     detail: layerDetail(element),
     children,
-    inserted: isInsertedBoxLayer(element) ? "box" : isInsertedTextLayer(element) ? "text" : null,
+    inserted: isInsertedBoxLayer(element) ? "box" : isInsertedImageLayer(element) ? "image" : isInsertedTextLayer(element) ? "text" : null,
   };
 }
 
@@ -1721,11 +2007,15 @@ function beginCanvasLayerDrag(event) {
     beginDivInsertionDrag(event);
     return;
   }
+  if (activeTool === "image") {
+    beginImageInsertionDrag(event);
+    return;
+  }
   if (activeTool !== "select" || event.button !== 0 || layerPointerDrag || textPositionDrag) return;
   const element = selectedElement?.contains(event.target) ? selectedElement : event.target;
   if (!(element instanceof Element) || element === overlay || isDocumentSurface(element) || layerTreeExcludedTags.has(element.tagName)) return;
 
-  if (insertedTextElements.has(element) || insertedBoxElements.has(element)) {
+  if (insertedTextElements.has(element) || insertedBoxElements.has(element) || insertedImageElements.has(element)) {
     beginTextPositionDrag(event, element);
     return;
   }
@@ -1744,6 +2034,10 @@ function beginCanvasLayerDrag(event) {
 function moveCanvasLayerDrag(event) {
   if (divInsertionDrag) {
     moveDivInsertionDrag(event);
+    return;
+  }
+  if (imageInsertionDrag) {
+    moveImageInsertionDrag(event);
     return;
   }
   if (textPositionDrag) {
@@ -1782,6 +2076,10 @@ function endCanvasLayerDrag(event) {
     endDivInsertionDrag(event);
     return;
   }
+  if (imageInsertionDrag) {
+    endImageInsertionDrag(event);
+    return;
+  }
   if (textPositionDrag) {
     endTextPositionDrag(event);
     return;
@@ -1805,6 +2103,10 @@ function endCanvasLayerDrag(event) {
 function cancelCanvasLayerDrag() {
   if (divInsertionDrag) {
     endDivInsertionDrag({ pointerId: divInsertionDrag.pointerId, type: "pointercancel", preventDefault() {}, stopImmediatePropagation() {} });
+    return;
+  }
+  if (imageInsertionDrag) {
+    endImageInsertionDrag({ pointerId: imageInsertionDrag.pointerId, type: "pointercancel", preventDefault() {}, stopImmediatePropagation() {} });
     return;
   }
   if (textPositionDrag) {
@@ -1892,7 +2194,7 @@ function inspectElement(element) {
     textEditable: isTextEditable(element),
     attributes: Object.fromEntries(
       Array.from(element.attributes)
-        .filter((attribute) => !["class", "id", selectionAttribute, insertedTextAttribute, insertedBoxAttribute].includes(attribute.name))
+        .filter((attribute) => !["class", "id", selectionAttribute, insertedTextAttribute, insertedBoxAttribute, insertedImageAttribute].includes(attribute.name) && !(isInsertedImageLayer(element) && attribute.name === "src"))
         .map((attribute) => [attribute.name, attribute.value]),
     ),
     dimensions: {
@@ -1979,7 +2281,7 @@ function collectPreviewChanges() {
 
     if (changes.length === 0) return [];
     const details = inspectElement(element);
-    const insertedElement = insertedTextElements.get(element) || insertedBoxElements.get(element);
+    const insertedElement = insertedTextElements.get(element) || insertedBoxElements.get(element) || insertedImageElements.get(element);
     return [{
       selectionId: details.selectionId,
       tagName: details.tagName,
@@ -2105,6 +2407,52 @@ function collectStructuralPreviewChanges() {
     }];
   });
 
+  const insertedImageChanges = Array.from(insertedImageElements.values()).flatMap((entry) => {
+    const element = entry.element;
+    if (!(element instanceof Element) || !element.isConnected || !element.parentElement) return [];
+
+    const details = inspectElement(element);
+    entry.parent = element.parentElement;
+    entry.parentIdentity = elementIdentity(entry.parent);
+    const parentDetails = inspectElement(entry.parent);
+    const left = Number.parseFloat(details.styles.left) || entry.left || 0;
+    const top = Number.parseFloat(details.styles.top) || entry.top || 0;
+    const width = Math.round(details.dimensions.width);
+    const height = Math.round(details.dimensions.height);
+    const parentInsertionId = insertedBoxElements.get(entry.parent)?.insertionId || null;
+    return [{
+      selectionId: details.selectionId,
+      insertionId: entry.insertionId,
+      tagName: "img",
+      source: entry.sourceContext?.source || null,
+      text: "",
+      changes: [{
+        kind: "structure",
+        operation: "insert",
+        property: "layer",
+        from: "Image tool",
+        to: `img in ${layerDescription(entry.parent)} at (${Math.round(left)}, ${Math.round(top)}) sized ${width} × ${height}`,
+        elementType: "image",
+        elementTagName: "img",
+        position: { left: Math.round(left), top: Math.round(top) },
+        size: { width, height },
+        fitContents: Boolean(entry.fitContents),
+        assetPath: entry.assetPath || null,
+        assetFileName: entry.fileName || null,
+        placeholderSrc: entry.assetPath ? null : entry.src || imagePlaceholderSrc,
+        alt: entry.alt || "",
+        sourceContext: entry.sourceContext,
+        previewParent: {
+          selectionId: parentDetails.selectionId,
+          insertionId: parentInsertionId,
+          tagName: parentDetails.tagName,
+          id: parentDetails.id,
+          source: parentDetails.react?.source || null,
+        },
+      }],
+    }];
+  });
+
   const moveChanges = Array.from(structuralMoves.values()).filter((move) => !isInsertedLayer(move.element)).flatMap((move) => {
     if (!move.element.isConnected || !move.targetParent.isConnected) return [];
 
@@ -2124,7 +2472,7 @@ function collectStructuralPreviewChanges() {
     }];
   });
 
-  return [...deletedChanges, ...duplicatedChanges, ...insertedTextChanges, ...insertedBoxChanges, ...moveChanges];
+  return [...deletedChanges, ...duplicatedChanges, ...insertedTextChanges, ...insertedBoxChanges, ...insertedImageChanges, ...moveChanges];
 }
 
 function sendPreviewState() {
@@ -2134,8 +2482,11 @@ function sendPreviewState() {
 }
 
 function selectionPayload(element) {
+  const insertedElement = insertedTextElements.get(element) || insertedBoxElements.get(element) || insertedImageElements.get(element);
   return {
     ...inspectElement(element),
+    insertionId: insertedElement?.insertionId || null,
+    imageFileName: insertedImageElements.get(element)?.fileName || null,
     previewChanges: [...collectPreviewChanges(), ...collectStructuralPreviewChanges()],
   };
 }
@@ -2198,6 +2549,10 @@ window.addEventListener(
     event.stopImmediatePropagation();
     if (activeTool === "div") {
       insertBoxAtPoint(event.clientX, event.clientY);
+      return;
+    }
+    if (activeTool === "image") {
+      insertImageAtPoint(event.clientX, event.clientY, isSelectionBackground(element) ? null : element);
       return;
     }
     if (isSelectionBackground(element)) {
@@ -2264,7 +2619,7 @@ function isCanvasShortcut(event) {
   if (event.code === "Equal" || event.code === "NumpadAdd" || event.code === "Minus" || event.code === "NumpadSubtract") return true;
   if (event.shiftKey) return false;
 
-  return event.code === "KeyS" || event.code === "KeyI" || event.code === "KeyT" || event.code === "KeyD" || event.code === "Digit0" || event.code === "Numpad0";
+  return event.code === "KeyS" || event.code === "KeyI" || event.code === "KeyT" || event.code === "KeyD" || event.code === "KeyP" || event.code === "Digit0" || event.code === "Numpad0";
 }
 
 window.addEventListener(
@@ -2273,7 +2628,7 @@ window.addEventListener(
     const targetIsEditable = Boolean(textEditingState) || isEditableKeyboardTarget(event.target);
 
     if (event.code === "Escape") {
-      if (layerPointerDrag || textPositionDrag || divInsertionDrag) {
+      if (layerPointerDrag || textPositionDrag || divInsertionDrag || imageInsertionDrag) {
         cancelCanvasLayerDrag();
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -2325,7 +2680,7 @@ window.addEventListener(
 );
 
 ipcRenderer.on("formia:set-tool", (_event, tool) => {
-  if (!["interact", "select", "text", "div"].includes(tool)) return;
+  if (!["interact", "select", "text", "div", "image"].includes(tool)) return;
   cancelCanvasLayerDrag();
   activeTool = tool;
   installCursorStyle();
@@ -2415,6 +2770,10 @@ ipcRenderer.on("formia:apply-text", (_event, value) => {
 
 ipcRenderer.on("formia:reset-text", () => {
   resetText();
+});
+
+ipcRenderer.on("formia:replace-image", (_event, payload) => {
+  replaceInsertedImage(payload);
 });
 
 ipcRenderer.on("formia:reset-overrides", () => {

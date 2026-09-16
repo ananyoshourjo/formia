@@ -408,9 +408,98 @@ function queueProjectServerStart(projectPath) {
   return startPromise;
 }
 
+const imageExtensions = new Set([".avif", ".bmp", ".gif", ".ico", ".jpeg", ".jpg", ".png", ".svg", ".webp"]);
+const imageMimeTypes = new Map([
+  [".avif", "image/avif"],
+  [".bmp", "image/bmp"],
+  [".gif", "image/gif"],
+  [".ico", "image/x-icon"],
+  [".jpeg", "image/jpeg"],
+  [".jpg", "image/jpeg"],
+  [".png", "image/png"],
+  [".svg", "image/svg+xml"],
+  [".webp", "image/webp"],
+]);
+const maximumPreviewImageBytes = 12 * 1024 * 1024;
+
+function imageAssetRequests(changes) {
+  const requests = new Map();
+  for (const item of Array.isArray(changes) ? changes : []) {
+    const insertionId = typeof item?.insertionId === "string" ? item.insertionId.trim() : "";
+    if (!insertionId || !Array.isArray(item?.changes)) continue;
+
+    for (const change of item.changes) {
+      if (change?.kind !== "structure" || change?.operation !== "insert" || change?.elementType !== "image") continue;
+      const sourcePath = typeof change.assetPath === "string" ? change.assetPath.trim() : "";
+      if (!sourcePath || requests.has(insertionId)) continue;
+      requests.set(insertionId, {
+        sourcePath,
+        fileName: typeof change.assetFileName === "string" ? change.assetFileName.trim() : "",
+      });
+    }
+  }
+  return requests;
+}
+
+function safeImageAssetStem(fileName) {
+  const stem = path.basename(fileName, path.extname(fileName))
+    .replace(/[^a-z0-9_-]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return stem || "image";
+}
+
+async function stageImageAssets(projectPath, changes) {
+  const requests = imageAssetRequests(changes);
+  if (requests.size === 0) return new Map();
+
+  const targetDirectory = path.join(projectPath, "public", "formia-assets");
+  await fs.promises.mkdir(targetDirectory, { recursive: true });
+  const staged = new Map();
+
+  for (const [insertionId, request] of requests) {
+    const sourcePath = path.resolve(request.sourcePath);
+    const extension = path.extname(sourcePath).toLowerCase();
+    if (!imageExtensions.has(extension)) throw new Error(`Unsupported image type for ${path.basename(sourcePath)}.`);
+
+    const stats = await fs.promises.stat(sourcePath);
+    if (!stats.isFile()) throw new Error(`The selected image is not a file: ${path.basename(sourcePath)}.`);
+    if (stats.size > maximumPreviewImageBytes) throw new Error(`${path.basename(sourcePath)} is larger than 12 MB.`);
+
+    const safeInsertionId = insertionId.replace(/[^a-z0-9_-]+/gi, "-") || "image";
+    const targetName = `${safeInsertionId}-${safeImageAssetStem(request.fileName || sourcePath)}${extension}`;
+    await fs.promises.copyFile(sourcePath, path.join(targetDirectory, targetName));
+    staged.set(insertionId, {
+      src: `/formia-assets/${targetName}`,
+      fileName: request.fileName || path.basename(sourcePath),
+    });
+  }
+
+  return staged;
+}
+
+function preparePreviewChangesForPrompt(changes, stagedImageAssets) {
+  return (Array.isArray(changes) ? changes : []).map((item) => ({
+    ...item,
+    changes: Array.isArray(item.changes)
+      ? item.changes.map((change) => {
+        if (change?.kind !== "structure" || change?.operation !== "insert" || change?.elementType !== "image") return change;
+
+        const stagedAsset = stagedImageAssets.get(item.insertionId);
+        const nextChange = { ...change };
+        delete nextChange.assetPath;
+        delete nextChange.placeholderSrc;
+        nextChange.assetSrc = stagedAsset?.src || change.placeholderSrc || null;
+        if (stagedAsset?.fileName) nextChange.assetFileName = stagedAsset.fileName;
+        return nextChange;
+      })
+      : item.changes,
+  }));
+}
+
 function buildCodexPrompt(payload) {
   const selection = payload.selection || {};
-  const changes = Array.isArray(payload.previewChanges) ? payload.previewChanges : [];
+  const changes = preparePreviewChangesForPrompt(payload.previewChanges, payload.stagedImageAssets || new Map());
 
   return [
     "You are implementing a visual change requested from Formia, a local visual React editor.",
@@ -422,7 +511,8 @@ function buildCodexPrompt(payload) {
     "When a staged structure change has operation 'delete', remove the corresponding JSX element from the source. When operation is 'duplicate', add a source-level duplicate of the corresponding JSX element at the requested sibling position, preserving its visual structure and content while avoiding duplicate internal Formia selection markers.",
     "When a staged structure change has operation 'insert' and elementType 'text', add a new source-level <p> at the requested source context. Preserve the requested text and the intentional absolute positioning with its left/top coordinates, incorporate later text and style changes that share the insertionId, and never copy Formia preview markers into the source.",
     "When a staged structure change has operation 'insert' and elementType 'box', add a new source-level <div> at the requested destination. Preserve the intentional absolute positioning, requested left/top coordinates, requested size, and a 1px grey border with no background color. A click-created div has fitContents true: it is 100px by 100px when empty and inherits the measured size needed to enclose its children. A drag-created div has fitContents false: preserve its explicit dragged width and height even when it contains elements.",
-    "When an inserted box or inserted text previewParent includes an insertionId, use that inserted element as the source-level parent so nested insertions remain nested in the requested order.",
+    "When a staged structure change has operation 'insert' and elementType 'image', add a source-level <img> at the requested destination. Preserve the intentional absolute positioning, requested left/top coordinates, requested size, alt text, and the exact assetSrc. For a click-created photo with fitContents true, use the uploaded asset's intrinsic dimensions when supplied; for a drag-created photo with fitContents false, preserve the drawn width and height after upload. If assetSrc is null, use the provided lightweight inline placeholder source. Do not copy Formia preview markers into the source.",
+    "When an inserted box, image, or inserted text previewParent includes an insertionId, use that inserted element as the source-level parent so nested insertions remain nested in the requested order.",
     "For an inserted text layer, use the source context only as a locator and inspect the repository to choose the correct JSX parent or sibling. Preserve existing architecture and responsive behavior; do not add event handlers, data loading, or unrelated layout changes. If the source location is genuinely ambiguous, explain the limitation instead of silently placing the paragraph somewhere unrelated.",
     "For an inserted text layer, previewParent is the final parent chosen in the Layers panel after any reparenting. Use that destination when placing the new paragraph; do not emit or expect a separate move for the same inserted layer.",
     "The position:absolute, left, top, and margin values of an inserted text layer are intentional authored output, not temporary Formia inline styling. Preserve their rendered result using the project's existing maintainable styling conventions when possible.",
@@ -505,6 +595,8 @@ async function runCodexBuild(payload, jobId) {
 
   if (activeCodexJob) throw new Error("A Codex build is already running.");
 
+  const stagedImageAssets = await stageImageAssets(projectPath, request.previewChanges);
+
   const server = new CodexAppServer({
     cwd: projectPath,
     version: app.getVersion(),
@@ -552,7 +644,7 @@ async function runCodexBuild(payload, jobId) {
         if (message.method === "error") reject(new Error(message.params?.error?.message || "Codex reported an error."));
       };
     });
-    const prompt = buildCodexPrompt({ ...request, projectPath });
+    const prompt = buildCodexPrompt({ ...request, projectPath, stagedImageAssets });
     await server.request("turn/start", {
       threadId,
       cwd: projectPath,
@@ -606,6 +698,34 @@ ipcMain.handle("formia:select-project", async () => {
   if (result.canceled || !result.filePaths[0]) return null;
 
   return openProjectPath(result.filePaths[0]);
+});
+
+ipcMain.handle("formia:select-image", async () => {
+  const result = await dialog.showOpenDialog({
+    title: "Choose an image",
+    properties: ["openFile"],
+    filters: [{ name: "Image files", extensions: ["avif", "bmp", "gif", "ico", "jpeg", "jpg", "png", "svg", "webp"] }],
+  });
+
+  if (result.canceled || !result.filePaths[0]) return null;
+
+  const sourcePath = path.resolve(result.filePaths[0]);
+  const extension = path.extname(sourcePath).toLowerCase();
+  if (!imageExtensions.has(extension)) throw new Error("Choose a supported image file.");
+
+  const stats = await fs.promises.stat(sourcePath);
+  if (!stats.isFile()) throw new Error("The selected image is not a file.");
+  if (stats.size > maximumPreviewImageBytes) throw new Error("Choose an image smaller than 12 MB.");
+
+  const fileName = path.basename(sourcePath);
+  const mimeType = imageMimeTypes.get(extension) || "application/octet-stream";
+  const data = await fs.promises.readFile(sourcePath);
+  return {
+    sourcePath,
+    fileName,
+    mimeType,
+    dataUrl: `data:${mimeType};base64,${data.toString("base64")}`,
+  };
 });
 
 ipcMain.handle("formia:open-project", (_event, projectPath) => {

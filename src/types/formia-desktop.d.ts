@@ -8,6 +8,7 @@ interface Window {
     getProjectServerStatus: () => Promise<import("@/lib/desktop-contracts").ProjectServerStatus>;
     restartProjectServer: () => Promise<{ url: string; metadata: unknown }>;
     stopProjectServer: () => Promise<void>;
+    selectImage: () => Promise<{ sourcePath: string; fileName: string; mimeType: string; dataUrl: string } | null>;
     buildWithCodex: (payload: import("@/lib/desktop-contracts").CodexBuildRequest) => Promise<import("@/lib/desktop-contracts").CodexBuildResult>;
     cancelCodexBuild: () => Promise<void>;
     getCodexAvailability: () => Promise<import("@/lib/desktop-contracts").CodexAvailability>;
