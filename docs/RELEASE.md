@@ -2,11 +2,14 @@
 
 ## Versioning
 
-Formia uses Semantic Versioning in `MAJOR.MINOR.PATCH` order and publishes tags as `vMAJOR.MINOR.PATCH`.
+Formia uses `PHASE.MAJOR.MINOR` and publishes tags as `vPHASE.MAJOR.MINOR`.
 
-- Increment `PATCH` for backward-compatible fixes.
-- Increment `MINOR` for backward-compatible features.
-- Increment `MAJOR` for incompatible stable contracts.
+- Keep `PHASE` stable during ordinary releases. Phase `0` is alpha or beta, phase `1` is the completed app, and phase `2` is a complete rewrite or brand change.
+- Increment `MINOR` for backward-compatible fixes and small usability improvements.
+- Increment `MAJOR` for backward-compatible features and meaningful workflow or UI additions; reset `MINOR` to `0`.
+- Increment `PHASE` only for a lifecycle transition; reset `MAJOR` and `MINOR` to `0`.
+
+Existing tags remain unchanged. Continue from the latest release using phase `1` for the completed app.
 
 Keep `package.json`, `package-lock.json`, the changelog heading, `src/lib/release.ts`, the Git tag, and the GitHub Release on the same version.
 
