@@ -1,7 +1,7 @@
 "use client";
 
 import { createElement, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AlignBottomIcon, AlignCenterHorizontalSimpleIcon, AlignCenterVerticalIcon, AlignCenterVerticalSimpleIcon, AngleIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowLineDownIcon, ArrowLineLeftIcon, ArrowLineRightIcon, ArrowLineUpIcon, ArrowRightIcon, ArrowsInLineVerticalIcon, ArrowsOutLineHorizontalIcon, ArrowsOutLineVerticalIcon, BoundingBoxIcon, BrowserIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CircleIcon, CircleNotchIcon, ClipboardTextIcon, ColumnsIcon, CompassIcon, CornersOutIcon, CrosshairSimpleIcon, CursorIcon, CursorTextIcon, DotIcon, DotsNineIcon, DownloadSimpleIcon, EraserIcon, EyeIcon, EyeSlashIcon, FlipHorizontalIcon, FlipVerticalIcon, FrameCornersIcon, GearSixIcon, GitCommitIcon, GridFourIcon, ImageIcon, LinkSimpleIcon, LinkSimpleHorizontalIcon, ListBulletsIcon, ListDashesIcon, ListNumbersIcon, MinusIcon, MouseScrollIcon, NavigationArrowIcon, ParagraphIcon, PathIcon, PlusIcon, PushPinIcon, RectangleIcon, RowsIcon, ShapesIcon, SidebarIcon, SidebarSimpleIcon, SplitHorizontalIcon, SplitVerticalIcon, SquareIcon, StackIcon, StackSimpleIcon, TableIcon, TerminalWindowIcon, TextHIcon, TextboxIcon, VideoCameraIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { AlignBottomIcon, AlignCenterHorizontalSimpleIcon, AlignCenterVerticalIcon, AlignCenterVerticalSimpleIcon, AngleIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon, ArrowElbowDownLeftIcon, ArrowLeftIcon, ArrowLineDownIcon, ArrowLineLeftIcon, ArrowLineRightIcon, ArrowLineUpIcon, ArrowRightIcon, ArrowsInLineVerticalIcon, ArrowsOutLineHorizontalIcon, ArrowsOutLineVerticalIcon, BoundingBoxIcon, BrowserIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CircleIcon, CircleNotchIcon, ClipboardTextIcon, ColumnsIcon, CompassIcon, CornersOutIcon, CrosshairSimpleIcon, CursorIcon, CursorTextIcon, DotIcon, DotsNineIcon, DownloadSimpleIcon, EraserIcon, EyeIcon, EyeSlashIcon, FlipHorizontalIcon, FlipVerticalIcon, FrameCornersIcon, GearSixIcon, GitCommitIcon, GlobeSimpleIcon, GridFourIcon, ImageIcon, LinkSimpleIcon, LinkSimpleHorizontalIcon, ListBulletsIcon, ListDashesIcon, ListNumbersIcon, MinusIcon, MouseScrollIcon, NavigationArrowIcon, ParagraphIcon, PathIcon, PlusIcon, PushPinIcon, RectangleIcon, RowsIcon, ShapesIcon, SidebarIcon, SidebarSimpleIcon, SplitHorizontalIcon, SplitVerticalIcon, SquareIcon, StackIcon, StackSimpleIcon, TableIcon, TerminalWindowIcon, TextHIcon, TextboxIcon, VideoCameraIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
 import { AlignBottomFilled, AlignHorizontalCenterFilled, AlignLeft2Filled, AlignRight2Filled, AlignTopFilled } from "@mingcute/react/core-filled";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
@@ -2605,14 +2605,17 @@ function PropertiesSidebar({
   codexAvailability,
   codexStatus,
   projectServerStatus,
+  desktopActionError,
   canvasBackground,
   canRefreshApp,
+  canOpenInBrowser,
   onBuild,
   onCancelBuild,
   onRestartServer,
   onCopyServerDiagnostics,
   serverDiagnosticsCopied,
   onRefreshApp,
+  onOpenInBrowser,
   onCanvasBackgroundChange,
   onApplyStyle,
   onResetStyle,
@@ -2629,14 +2632,17 @@ function PropertiesSidebar({
   codexAvailability: CodexAvailability;
   codexStatus: CodexStatus;
   projectServerStatus: ProjectServerStatus;
+  desktopActionError: string;
   canvasBackground: string;
   canRefreshApp: boolean;
+  canOpenInBrowser: boolean;
   onBuild: () => void;
   onCancelBuild: () => void;
   onRestartServer: () => void;
   onCopyServerDiagnostics: () => void;
   serverDiagnosticsCopied: boolean;
   onRefreshApp: () => void;
+  onOpenInBrowser: () => void;
   onCanvasBackgroundChange: (value: string) => void;
   onApplyStyle: (property: string, value: string) => void;
   onResetStyle: (property: string) => void;
@@ -2691,6 +2697,10 @@ function PropertiesSidebar({
                     <ArrowClockwiseIcon />
                     Refresh app
                   </DropdownMenuItem>
+                  <DropdownMenuItem disabled={!canOpenInBrowser} onSelect={onOpenInBrowser}>
+                    <GlobeSimpleIcon />
+                    Open in browser
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -2705,7 +2715,7 @@ function PropertiesSidebar({
         </div>
       </header>
 
-      {isDesktop && (codexAvailability.state !== "available" || codexStatus.state !== "idle") || projectServerStatus.state === "failed" ? (
+      {isDesktop && (codexAvailability.state !== "available" || codexStatus.state !== "idle") || projectServerStatus.state === "failed" || desktopActionError ? (
         <section className="shrink-0 space-y-2 border-b border-border px-3.5 py-3">
           {isDesktop && codexAvailability.state !== "available" ? (
             <Hint content={codexAvailability.message}>
@@ -2727,6 +2737,12 @@ function PropertiesSidebar({
                 <span className="truncate">{codexStatusLabel(codexStatus)}</span>
               </p>
             </Hint>
+          ) : null}
+          {desktopActionError ? (
+            <p className="flex items-start gap-1.5 text-xs leading-5 text-destructive" role="alert">
+              <WarningCircleIcon className="mt-0.5 size-3 shrink-0" />
+              <span>{desktopActionError}</span>
+            </p>
           ) : null}
           {projectServerStatus.state === "failed" ? (
             <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-2.5" role="alert">
@@ -2830,6 +2846,7 @@ export function ProjectWorkspace({
   const [codexStatus, setCodexStatus] = useState<CodexStatus>({ state: "idle", message: "" });
   const [projectServerStatus, setProjectServerStatus] = useState<ProjectServerStatus>({ state: "stopped", message: "" });
   const [serverDiagnosticsCopied, setServerDiagnosticsCopied] = useState(false);
+  const [desktopActionError, setDesktopActionError] = useState("");
   const [zoom, setZoom] = useState(0.75);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [panMode, setPanMode] = useState(false);
@@ -3441,6 +3458,19 @@ export function ProjectWorkspace({
     if (canvasUrl) setCanvasKey((key) => key + 1);
   }
 
+  async function openCanvasInBrowser() {
+    const desktop = window.formiaDesktop;
+    const url = webviewRef.current?.getURL() || canvasUrl;
+    if (!desktop || !url) return;
+
+    setDesktopActionError("");
+    try {
+      await desktop.openInBrowser(url);
+    } catch (error) {
+      setDesktopActionError(desktopErrorMessage(error, "Could not open the app in your browser."));
+    }
+  }
+
   function selectLayer(selectionId: string) {
     sendCanvasMessage("formia:select-layer", selectionId);
   }
@@ -3724,14 +3754,17 @@ export function ProjectWorkspace({
         codexAvailability={codexAvailability}
         codexStatus={codexStatus}
         projectServerStatus={projectServerStatus}
+        desktopActionError={desktopActionError}
         canvasBackground={canvasBackground}
         canRefreshApp={Boolean(canvasUrl)}
+        canOpenInBrowser={Boolean(isDesktop && canvasUrl && projectServerStatus.state === "ready")}
         onBuild={() => void buildWithCodex()}
         onCancelBuild={() => void cancelCodexBuild()}
         onRestartServer={() => void restartProjectServer()}
         onCopyServerDiagnostics={() => void copyServerDiagnostics()}
         serverDiagnosticsCopied={serverDiagnosticsCopied}
         onRefreshApp={refreshApp}
+        onOpenInBrowser={() => void openCanvasInBrowser()}
         onCanvasBackgroundChange={setCanvasBackground}
         onApplyStyle={(property, value) => sendCanvasMessage("formia:apply-style", { property, value })}
         onResetStyle={(property) => sendCanvasMessage("formia:reset-style", property)}

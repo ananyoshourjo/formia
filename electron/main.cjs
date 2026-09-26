@@ -739,6 +739,15 @@ ipcMain.handle("formia:restart-project-server", () => {
   return queueProjectServerStart(selectedProjectPath);
 });
 
+ipcMain.handle("formia:open-in-browser", async (_event, value) => {
+  const serverUrl = activeProjectServer?.ready ? normalizeProjectUrl(activeProjectServer.url) : null;
+  const requestedUrl = normalizeProjectUrl(value);
+  if (!serverUrl || !requestedUrl || new URL(serverUrl).origin !== new URL(requestedUrl).origin) {
+    throw new Error("The running project preview is unavailable.");
+  }
+  await shell.openExternal(requestedUrl);
+});
+
 ipcMain.handle("formia:get-codex-availability", () => latestCodexAvailability);
 
 ipcMain.handle("formia:get-installed-fonts", () => getInstalledFonts());

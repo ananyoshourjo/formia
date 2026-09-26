@@ -1,5 +1,15 @@
 # Release checklist
 
+## Versioning
+
+Formia uses Semantic Versioning in `MAJOR.MINOR.PATCH` order and publishes tags as `vMAJOR.MINOR.PATCH`.
+
+- Increment `PATCH` for backward-compatible fixes.
+- Increment `MINOR` for backward-compatible features.
+- Increment `MAJOR` for incompatible stable contracts.
+
+Keep `package.json`, `package-lock.json`, the changelog heading, `src/lib/release.ts`, the Git tag, and the GitHub Release on the same version.
+
 A release is complete only when every item below is verified against the exact commit being published.
 
 1. Confirm the intended source diff and version scope.

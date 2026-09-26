@@ -7,6 +7,7 @@ interface Window {
     openProject: (projectPath: string) => Promise<import("@/lib/desktop-contracts").Project>;
     getProjectServerStatus: () => Promise<import("@/lib/desktop-contracts").ProjectServerStatus>;
     restartProjectServer: () => Promise<{ url: string; metadata: unknown }>;
+    openInBrowser: (url: string) => Promise<void>;
     stopProjectServer: () => Promise<void>;
     selectImage: () => Promise<{ sourcePath: string; fileName: string; mimeType: string; dataUrl: string } | null>;
     buildWithCodex: (payload: import("@/lib/desktop-contracts").CodexBuildRequest) => Promise<import("@/lib/desktop-contracts").CodexBuildResult>;
@@ -31,6 +32,7 @@ interface Window {
 interface FormiaWebviewElement extends HTMLElement {
   canGoBack(): boolean;
   canGoForward(): boolean;
+  getURL(): string;
   goBack(): void;
   goForward(): void;
   reload(): void;
