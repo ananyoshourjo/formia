@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [1.9.0] - 2026-09-26
+
+### Added
+
+- Added an Open in browser option to the desktop Build menu for the running project preview.
+
 ## [1.8.0] - 2026-09-16
 
 ### Added
