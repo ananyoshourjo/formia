@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## [1.9.0] - 2026-10-01
+
+### Added
+
+- Added desktop Ctrl+Z undo and Ctrl+Shift+Z redo for property and text edits, insertion, deletion, duplication, image replacement, and layer moves.
+- Grouped canvas drags and continuous edits to the same property into single undo actions while preserving native text undo in focused inputs.
+
+### Fixed
+
+- Updated Next.js and transitive dependencies to resolve reported security advisories.
+- Restored original elements correctly when resetting a deleted preview container that held moved existing elements.
+
+Undo history covers up to 100 actions in the current preview session and does not reverse source changes already applied by Build. This release retains phase 1 and increments MAJOR for the new editing workflow under PHASE.MAJOR.MINOR; historical tags remain unchanged.
+
 ## [1.8.1] - 2026-09-26
 
 ### Added

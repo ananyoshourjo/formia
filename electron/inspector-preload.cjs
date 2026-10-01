@@ -172,6 +172,166 @@ let imageInsertionDrag = null;
 let suppressNextClick = false;
 let canvasDropTarget = null;
 
+// Keep actual nodes so undo preserves project event listeners and React references.
+// Only editor-managed elements are captured; the project DOM is never cloned wholesale.
+const undoHistory = [];
+const redoHistory = [];
+const historyMaps = [structuralMoves, deletedElements, duplicatedElements, insertedTextElements, insertedBoxElements, insertedImageElements];
+let restoringHistory = false;
+let historyTransactionDepth = 0;
+let gestureHistory = null;
+let textEditHistory = null;
+const maximumHistoryEntries = 100;
+const historyAttributeNames = ["style", "class", "src", "alt", selectionAttribute, insertedTextAttribute, insertedBoxAttribute, insertedImageAttribute, "contenteditable", "spellcheck"];
+
+function copyHistoryValue(value) {
+  if (!value || typeof value !== "object" || value instanceof Node) return value;
+  if (value instanceof Map) return new Map(Array.from(value, ([key, item]) => [key, copyHistoryValue(item)]));
+  if (Array.isArray(value)) return value.map(copyHistoryValue);
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, copyHistoryValue(item)]));
+}
+
+function captureEditState(extraElements = []) {
+  const elements = new Set([...touchedElements, ...extraElements]);
+  for (const map of historyMaps) {
+    for (const [element, entry] of map) {
+      elements.add(element);
+      if (entry.clone) elements.add(entry.clone);
+      if (entry.element) elements.add(entry.element);
+    }
+  }
+  if (selectedElement && !isDocumentSurface(selectedElement)) elements.add(selectedElement);
+  for (const element of Array.from(elements)) {
+    if (!(element instanceof Element) || isDocumentSurface(element)) { elements.delete(element); continue; }
+    for (const child of element.querySelectorAll("*")) elements.add(child);
+  }
+  return {
+    signature: JSON.stringify([...collectPreviewChanges(), ...collectStructuralPreviewChanges()]),
+    selection: selectedElement,
+    maps: historyMaps.map(copyHistoryValue),
+    touched: Array.from(touchedElements, (element) => [element, copyHistoryValue(elementSnapshots.get(element))]),
+    nodes: Array.from(elements, (element) => ({
+      element,
+      parent: element.parentNode,
+      next: element.nextSibling,
+      attributes: historyAttributes(element),
+      // Only text leaves need content restoration. Preserve the original Text nodes too.
+      children: element.children.length === 0 ? Array.from(element.childNodes, (node) => ({ node, value: node.nodeValue })) : null,
+      structure: copyHistoryValue(structureSnapshots.get(element)),
+    })),
+  };
+}
+
+function historyAttributes(element) {
+  const attributes = new Map(historyAttributeNames.map((name) => [name, element.getAttribute(name)]));
+  if (textEditingState?.element === element) {
+    for (const name of ["contenteditable", "spellcheck"]) {
+      const value = textEditingState[name === "contenteditable" ? "contentEditable" : "spellcheck"];
+      if (value === null) attributes.delete(name);
+      else attributes.set(name, value);
+    }
+  }
+  return Array.from(attributes);
+}
+
+function commitEditState(before, key = null) {
+  if (!before || restoringHistory) return;
+  const after = captureEditState(before.nodes.map(({ element }) => element));
+  if (before.signature === after.signature) return;
+  const now = Date.now();
+  const previous = undoHistory.at(-1);
+  if (key && previous?.key === key && previous.after.selection === before.selection && now - previous.time < 600 && redoHistory.length === 0) {
+    previous.after = after;
+    previous.time = now;
+  } else {
+    undoHistory.push({ before, after, key, time: now });
+    if (undoHistory.length > maximumHistoryEntries) undoHistory.shift();
+  }
+  redoHistory.length = 0;
+}
+
+function performPreviewEdit(action, key = null, extraElements = []) {
+  if (restoringHistory || historyTransactionDepth || gestureHistory) return action();
+  finishTextEditing();
+  const before = captureEditState(extraElements);
+  historyTransactionDepth += 1;
+  try { return action(); }
+  finally {
+    historyTransactionDepth -= 1;
+    commitEditState(before, key);
+  }
+}
+
+function restoreEditState(state) {
+  restoringHistory = true;
+  try {
+    finishTextEditing();
+    resetAllOverrides();
+    for (const { element, attributes, children, structure } of state.nodes) {
+      for (const [name, value] of attributes) {
+        if (value === null) element.removeAttribute(name);
+        else element.setAttribute(name, value);
+      }
+      if (children) {
+        for (const { node, value } of children) node.nodeValue = value;
+        element.replaceChildren(...children.map(({ node }) => node));
+      }
+      if (structure) structureSnapshots.set(element, copyHistoryValue(structure));
+      else structureSnapshots.delete(element);
+    }
+    // Reverse sibling order means each stored insertion reference is available.
+    for (const { element, parent, next } of [...state.nodes].reverse()) {
+      if (parent) parent.insertBefore(element, next?.parentNode === parent ? next : null);
+      else element.remove();
+    }
+    historyMaps.forEach((map, index) => {
+      map.clear();
+      for (const [element, entry] of state.maps[index]) map.set(element, copyHistoryValue(entry));
+    });
+    touchedElements.clear();
+    for (const [element, snapshot] of state.touched) {
+      touchedElements.add(element);
+      elementSnapshots.set(element, copyHistoryValue(snapshot));
+    }
+    selectedElement = state.selection?.isConnected ? state.selection : null;
+    selectedElementIdentity = selectedElement ? elementIdentity(selectedElement) : null;
+    if (selectedElement) {
+      moveOverlay(selectedElement);
+      sendUpdatedSelection();
+    } else {
+      hideOverlay();
+      ipcRenderer.sendToHost("formia:selection-cleared");
+    }
+    sendLayerTree();
+    sendPreviewState();
+  } finally { restoringHistory = false; }
+}
+
+function undoPreviewEdit() {
+  finishTextEditing();
+  if (gestureHistory || layerPointerDrag || textPositionDrag || divInsertionDrag || imageInsertionDrag) return;
+  const entry = undoHistory.pop();
+  if (!entry) return;
+  restoreEditState(entry.before);
+  redoHistory.push(entry);
+}
+
+function redoPreviewEdit() {
+  finishTextEditing();
+  if (gestureHistory || layerPointerDrag || textPositionDrag || divInsertionDrag || imageInsertionDrag) return;
+  const entry = redoHistory.pop();
+  if (!entry) return;
+  restoreEditState(entry.after);
+  undoHistory.push(entry);
+}
+
+window.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0 || activeTool === "interact" || isEditableKeyboardTarget(event.target)) return;
+  finishTextEditing();
+  const target = event.target instanceof Element && !isDocumentSurface(event.target) ? event.target : null;
+  gestureHistory = captureEditState(target ? [target] : []);
+}, true);
+
 const toolCursorPaths = {
   interact: "M220.49,207.8,207.8,220.49a12,12,0,0,1-17,0l-56.57-56.57L115,214.08l-.13.33A15.84,15.84,0,0,1,100.26,224l-.78,0a15.82,15.82,0,0,1-14.41-11L32.8,52.92A15.95,15.95,0,0,1,52.92,32.8L213,85.07a16,16,0,0,1,1.41,29.8l-.33.13-50.16,19.27,56.57,56.56A12,12,0,0,1,220.49,207.8Z",
   select: "M248,121.58a15.76,15.76,0,0,1-11.29,15l-.2.06-78,21.84-21.84,78-.06.2a15.77,15.77,0,0,1-15,11.29h-.3a15.77,15.77,0,0,1-15.07-10.67L41,61.41a1,1,0,0,1-.05-.16A16,16,0,0,1,61.25,40.9l.16.05,175.92,65.26A15.78,15.78,0,0,1,248,121.58Z",
@@ -475,6 +635,15 @@ function rebindPreviewOverrides() {
       if (selectedElement === element) selectedElement = replacement;
     }
 
+    // A framework remount creates new source nodes. Older node-based commands
+    // must not resurrect the detached tree owned by the previous React render.
+    if (replacements.size > 0 && !restoringHistory) {
+      undoHistory.length = 0;
+      redoHistory.length = 0;
+      textEditHistory = null;
+      gestureHistory = null;
+    }
+
     if (selectedElement && !selectedElement.isConnected && selectedElementIdentity) {
       const replacement = findPreviewReplacement(selectedElementIdentity);
       if (replacement) selectedElement = replacement;
@@ -671,6 +840,9 @@ function finishTextEditing() {
   if (spellcheck === null) element.removeAttribute("spellcheck");
   else element.setAttribute("spellcheck", spellcheck);
   textEditingState = null;
+  const before = textEditHistory;
+  textEditHistory = null;
+  commitEditState(before);
 }
 
 function beginTextEditing(element, selectContents = false) {
@@ -681,6 +853,7 @@ function beginTextEditing(element, selectContents = false) {
   }
 
   finishTextEditing();
+  textEditHistory = captureEditState([element]);
   const snapshot = snapshotFor(element);
   if (snapshot.html === undefined) snapshot.html = element.innerHTML;
   textEditingState = {
@@ -928,7 +1101,7 @@ function createInsertedImageNode(entry, parent) {
   return element;
 }
 
-function insertTextAtPoint(clientX, clientY, anchor) {
+function insertTextAtPointWithoutHistory(clientX, clientY, anchor) {
   const parent = findCanvasInsertionParent();
   if (!(parent instanceof Element)) return false;
 
@@ -961,7 +1134,7 @@ function insertTextAtPoint(clientX, clientY, anchor) {
   return true;
 }
 
-function insertBoxAtPoint(clientX, clientY, { width = 100, height = 100, fitContents = true } = {}) {
+function insertBoxAtPointWithoutHistory(clientX, clientY, { width = 100, height = 100, fitContents = true } = {}) {
   const parent = findCanvasInsertionParent();
   if (!(parent instanceof Element)) return false;
 
@@ -994,7 +1167,7 @@ function insertBoxAtPoint(clientX, clientY, { width = 100, height = 100, fitCont
   return element;
 }
 
-function insertImageAtPoint(clientX, clientY, anchor, { width = defaultInsertedImageWidth, height = defaultInsertedImageHeight, fitContents = true } = {}) {
+function insertImageAtPointWithoutHistory(clientX, clientY, anchor, { width = defaultInsertedImageWidth, height = defaultInsertedImageHeight, fitContents = true } = {}) {
   const parent = findCanvasInsertionParent();
   if (!(parent instanceof Element)) return false;
 
@@ -1107,7 +1280,7 @@ function finishInsertedImageReplacement(entry) {
   notifyInsertedImageReplacement(entry);
 }
 
-function replaceInsertedImage(payload) {
+function replaceInsertedImageWithoutHistory(payload) {
   const insertionId = typeof payload?.insertionId === "string" ? payload.insertionId : "";
   const source = typeof payload?.src === "string" ? payload.src : "";
   const sourcePath = typeof payload?.sourcePath === "string" ? payload.sourcePath : "";
@@ -1209,7 +1382,9 @@ function moveElementTo(element, targetParent, beforeElement = null) {
 function restoreStructuralOverrides() {
   const moves = Array.from(structuralMoves.values()).reverse();
   for (const move of moves) {
-    if (!move.element.isConnected || !move.originalParent?.isConnected) continue;
+    // A moved original can be inside a deleted inserted container. Restore it
+    // before removing preview containers, even when that subtree is detached.
+    if (!move.originalParent?.isConnected) continue;
     const siblings = Array.from(move.originalParent.children).filter((element) => element !== move.element);
     const originalReference = siblings[move.originalIndex] || null;
     move.originalParent.insertBefore(move.element, originalReference);
@@ -1265,7 +1440,7 @@ function moveSelectedLayer(direction) {
   return false;
 }
 
-function commitElementMove(element, target) {
+function commitElementMoveWithoutHistory(element, target) {
   if (!moveElementTo(element, target.parent, target.before)) return false;
 
   selectElement(element);
@@ -1527,7 +1702,7 @@ function clearLayerSelectionIds(element) {
   element.querySelectorAll(`[${selectionAttribute}]`).forEach((child) => child.removeAttribute(selectionAttribute));
 }
 
-function deleteSelectedLayer() {
+function deleteSelectedLayerWithoutHistory() {
   if (!(selectedElement instanceof Element) || isDocumentSurface(selectedElement) || !selectedElement.parentElement) return false;
 
   finishTextEditing();
@@ -1573,7 +1748,7 @@ function deleteSelectedLayer() {
   return true;
 }
 
-function duplicateSelectedLayer() {
+function duplicateSelectedLayerWithoutHistory() {
   if (!(selectedElement instanceof Element) || isDocumentSurface(selectedElement) || !selectedElement.parentElement) return false;
 
   finishTextEditing();
@@ -1605,7 +1780,7 @@ function sendUpdatedSelection() {
   }
 }
 
-function applyStyle(property, value) {
+function applyStyleWithoutHistory(property, value) {
   if (!selectedElement || !editableStyleProperties.has(property) || typeof value !== "string") return;
 
   if (property === "x" || property === "y") {
@@ -1639,7 +1814,7 @@ function applyStyle(property, value) {
   sendUpdatedSelection();
 }
 
-function resetStyle(property) {
+function resetStyleWithoutHistory(property) {
   if (!selectedElement || !editableStyleProperties.has(property)) return;
 
   const isCoordinate = property === "x" || property === "y";
@@ -1669,7 +1844,7 @@ function resetStyle(property) {
   sendUpdatedSelection();
 }
 
-function applyClassName(value) {
+function applyClassNameWithoutHistory(value) {
   if (!selectedElement || typeof value !== "string") return;
 
   const snapshot = snapshotFor(selectedElement);
@@ -1678,7 +1853,7 @@ function applyClassName(value) {
   sendUpdatedSelection();
 }
 
-function resetClassName() {
+function resetClassNameWithoutHistory() {
   if (!selectedElement) return;
 
   const snapshot = elementSnapshots.get(selectedElement);
@@ -1693,7 +1868,7 @@ function resetClassName() {
   sendUpdatedSelection();
 }
 
-function applyText(value) {
+function applyTextWithoutHistory(value) {
   if (!selectedElement || typeof value !== "string" || selectedElement.children.length > 0) return;
 
   finishTextEditing();
@@ -1703,7 +1878,7 @@ function applyText(value) {
   sendUpdatedSelection();
 }
 
-function resetText() {
+function resetTextWithoutHistory() {
   if (!selectedElement) return;
 
   finishTextEditing();
@@ -2072,6 +2247,11 @@ function moveCanvasLayerDrag(event) {
 }
 
 function endCanvasLayerDrag(event) {
+  try { return endCanvasLayerDragWithoutHistory(event); }
+  finally { finishHistoryGesture(); }
+}
+
+function endCanvasLayerDragWithoutHistory(event) {
   if (divInsertionDrag) {
     endDivInsertionDrag(event);
     return;
@@ -2614,7 +2794,7 @@ function isCanvasShortcut(event) {
   if (event.code === "Delete" || event.code === "Backspace") return true;
 
   const hasModifier = event.ctrlKey || event.metaKey;
-  if (hasModifier) return !event.shiftKey && (event.code === "BracketLeft" || event.code === "KeyD");
+  if (hasModifier) return event.code === "KeyZ" || (!event.shiftKey && (event.code === "BracketLeft" || event.code === "KeyD"));
 
   if (event.code === "Equal" || event.code === "NumpadAdd" || event.code === "Minus" || event.code === "NumpadSubtract") return true;
   if (event.shiftKey) return false;
@@ -2778,8 +2958,63 @@ ipcRenderer.on("formia:replace-image", (_event, payload) => {
 
 ipcRenderer.on("formia:reset-overrides", () => {
   resetAllOverrides();
+  undoHistory.length = 0;
+  redoHistory.length = 0;
+  gestureHistory = null;
 });
 
 ipcRenderer.on("formia:get-preview-state", () => {
   sendPreviewState();
 });
+
+// All discrete preview mutations enter the same bounded history.
+function applyStyle(...args) {
+  return performPreviewEdit(() => applyStyleWithoutHistory(...args), "style:" + String(args[0]), []);
+}
+function resetStyle(...args) {
+  return performPreviewEdit(() => resetStyleWithoutHistory(...args), null, []);
+}
+function applyClassName(...args) {
+  return performPreviewEdit(() => applyClassNameWithoutHistory(...args), "class", []);
+}
+function resetClassName(...args) {
+  return performPreviewEdit(() => resetClassNameWithoutHistory(...args), null, []);
+}
+function applyText(...args) {
+  return performPreviewEdit(() => applyTextWithoutHistory(...args), "text", []);
+}
+function resetText(...args) {
+  return performPreviewEdit(() => resetTextWithoutHistory(...args), null, []);
+}
+function replaceInsertedImage(...args) {
+  return performPreviewEdit(() => replaceInsertedImageWithoutHistory(...args), null, []);
+}
+function deleteSelectedLayer(...args) {
+  return performPreviewEdit(() => deleteSelectedLayerWithoutHistory(...args), null, []);
+}
+function duplicateSelectedLayer(...args) {
+  return performPreviewEdit(() => duplicateSelectedLayerWithoutHistory(...args), null, []);
+}
+function commitElementMove(...args) {
+  return performPreviewEdit(() => commitElementMoveWithoutHistory(...args), null, [args[0]]);
+}
+function insertTextAtPoint(...args) {
+  return performPreviewEdit(() => insertTextAtPointWithoutHistory(...args), null, []);
+}
+function insertBoxAtPoint(...args) {
+  return performPreviewEdit(() => insertBoxAtPointWithoutHistory(...args), null, []);
+}
+function insertImageAtPoint(...args) {
+  return performPreviewEdit(() => insertImageAtPointWithoutHistory(...args), null, []);
+}
+
+function finishHistoryGesture() {
+  const before = gestureHistory;
+  gestureHistory = null;
+  commitEditState(before);
+}
+window.addEventListener("pointerup", finishHistoryGesture, true);
+window.addEventListener("pointercancel", finishHistoryGesture, true);
+window.addEventListener("blur", finishHistoryGesture);
+ipcRenderer.on("formia:undo", undoPreviewEdit);
+ipcRenderer.on("formia:redo", redoPreviewEdit);

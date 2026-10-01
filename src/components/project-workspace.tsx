@@ -3345,6 +3345,11 @@ export function ProjectWorkspace({
     }
 
     if (hasModifier) {
+      if (isDesktop && input.code === "KeyZ") {
+        input.preventDefault?.();
+        sendCanvasMessage(input.shiftKey ? "formia:redo" : "formia:undo");
+        return;
+      }
       if (!input.shiftKey && input.code === "KeyD") {
         input.preventDefault?.();
         sendCanvasMessage("formia:duplicate-selected-layer");

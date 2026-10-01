@@ -29,6 +29,10 @@ The connected project remains the source of truth. Formia does not turn your pro
 
 Preview changes are intentionally temporary. Use **Build → Reset design** to discard them without modifying the project source.
 
+In the desktop editor, **Ctrl+Z** undoes a visual edit and **Ctrl+Shift+Z** redoes it. History covers property and text changes, insertion, deletion, duplication, image replacement, and layer moves. Canvas drags undo as one action; continuous edits to the same property are grouped. Text inputs keep their native text undo while focused.
+
+History keeps up to 100 actions in the current preview session. Reset design, a preview reload, an applied Build, or a React remount establishes a new baseline. Undo changes the preview, not files already written by Build.
+
 ## Requirements
 
 - Windows.
@@ -63,6 +67,7 @@ Run the main checks:
 ```powershell
 npm run lint
 npm test
+npm run test:desktop
 npm run build
 npm audit --audit-level=high
 ```

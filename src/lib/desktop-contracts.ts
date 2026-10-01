@@ -35,6 +35,8 @@ export type CanvasMessage =
   | { channel: "formia:measure-page-height"; args: [] }
   | { channel: "formia:clear-layer-highlight"; args: [] }
   | { channel: "formia:reset-overrides"; args: [] }
+  | { channel: "formia:undo"; args: [] }
+  | { channel: "formia:redo"; args: [] }
   | { channel: "formia:duplicate-selected-layer"; args: [] }
   | { channel: "formia:delete-selected-layer"; args: [] }
   | { channel: "formia:clear-selection"; args: [] }
