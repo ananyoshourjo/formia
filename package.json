@@ -1,6 +1,6 @@
 {
   "name": "formia-app",
-  "version": "1.8.1",
+  "version": "1.9.0",
   "description": "A desktop visual editor for making focused changes to local React projects with Codex.",
   "author": "Ananyo Shourjo",
   "license": "MIT",
@@ -16,7 +16,8 @@
     "package:desktop": "cross-env FORMIA_ELECTRON_BUILD=1 next build && node scripts/stage-desktop.cjs && electron-builder --dir --projectDir .desktop-build --config ../electron-builder.desktop.json",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test test/project-utils.test.cjs"
+    "test": "node --test test/project-utils.test.cjs",
+    "test:desktop": "node scripts/test-desktop.cjs"
   },
   "dependencies": {
     "@hugeicons/core-free-icons": "^4.3.0",
@@ -25,7 +26,7 @@
     "@phosphor-icons/react": "^2.1.10",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "next": "16.3.3",
+    "next": "16.3.8",
     "radix-ui": "^1.6.7",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -42,7 +43,7 @@
     "electron": "^44.0.0",
     "electron-builder": "^26.15.3",
     "eslint": "^9.39.5",
-    "eslint-config-next": "16.3.3",
+    "eslint-config-next": "16.3.8",
     "shadcn": "^4.19.0",
     "sharp": "^0.35.4",
     "tailwindcss": "^4",
